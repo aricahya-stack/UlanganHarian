@@ -1,0 +1,254 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, Clock3, CloudOff, CloudUpload, Flag, Grid3X3, LoaderCircle, RefreshCw, Send, ShieldCheck, Wifi } from 'lucide-react';
+import { AuthGuard } from '@/components/auth-guard';
+import { StudentShell } from '@/components/student-shell';
+import { Badge, Modal } from '@/components/ui';
+import { useSession } from '@/contexts/session-context';
+import { getExamApi, type Attempt, type ExamResult, type ExamSummary, type PreflightResult, type Question, type SaveStatus } from '@/lib/api';
+import { checkStorageReadiness, deleteLocalAttempt, findLocalAttemptByExam, saveLocalAttempt } from '@/lib/exam-store';
+import { formatBytes, formatCountdown, formatDateTime, formatDuration } from '@/lib/format';
+
+type Phase = 'loading' | 'preflight' | 'starting' | 'exam' | 'review' | 'submitting' | 'submitted' | 'error';
+
+export default function ExamPage() {
+  const params = useParams<{ examId: string }>();
+  const router = useRouter();
+  const { session } = useSession();
+  const examId = params.examId;
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [summary, setSummary] = useState<ExamSummary | null>(null);
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
+  const [questions, setQuestions] = useState<Record<number, Question>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [flagged, setFlagged] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [revision, setRevision] = useState(0);
+  const [dirtyCount, setDirtyCount] = useState(0);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('synced');
+  const [lastSyncAt, setLastSyncAt] = useState<string | undefined>();
+  const [storageWarning, setStorageWarning] = useState('');
+  const [online, setOnline] = useState(true);
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [examToken, setExamToken] = useState('');
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const [error, setError] = useState('');
+  const [remainingMs, setRemainingMs] = useState(0);
+  const [result, setResult] = useState<ExamResult | null>(null);
+  const syncInFlight = useRef(false);
+  const prefetchInFlight = useRef(false);
+  const autoSubmitStarted = useRef(false);
+
+  const currentQuestion = questions[currentIndex + 1];
+  const loadedCount = Object.keys(questions).length;
+  const totalQuestions = attempt?.questionCount || summary?.questionCount || 0;
+  const answeredCount = useMemo(() => Object.keys(answers).filter((key) => Boolean(answers[key])).length, [answers]);
+
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update(); window.addEventListener('online', update); window.addEventListener('offline', update);
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    (async () => {
+      try {
+        const exams = await getExamApi().getAvailableExams(session.token);
+        const found = exams.find((item) => item.examId === examId);
+        if (!found) throw new Error('Ujian tidak ditemukan atau tidak tersedia untuk akun ini.');
+        const storage = await checkStorageReadiness();
+        if (!active) return;
+        setSummary(found);
+        setPreflight({ online: navigator.onLine, ...storage });
+        setStorageWarning(storage.message || '');
+        setPhase('preflight');
+      } catch (err) {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : 'Gagal menyiapkan ujian.'); setPhase('error');
+      }
+    })();
+    return () => { active = false; };
+  }, [examId, session]);
+
+  const mergeQuestions = useCallback((items: Question[]) => {
+    setQuestions((previous) => {
+      const next = { ...previous };
+      items.forEach((question) => { next[question.number] = question; });
+      return next;
+    });
+  }, []);
+
+  const persistLocal = useCallback(async (next?: Partial<{ answers: Record<string, string>; flagged: string[]; currentIndex: number; revision: number; lastSyncAt: string | undefined }>) => {
+    if (!attempt) return;
+    const response = await saveLocalAttempt({
+      attemptId: attempt.attemptId,
+      examId: attempt.examId,
+      currentIndex: next?.currentIndex ?? currentIndex,
+      answers: next?.answers ?? answers,
+      flagged: next?.flagged ?? flagged,
+      revision: next?.revision ?? revision,
+      lastSyncAt: next?.lastSyncAt ?? lastSyncAt,
+      updatedAt: new Date().toISOString(),
+    });
+    if (!response.ok) {
+      setStorageWarning(response.quotaExceeded ? 'Penyimpanan HP penuh. Jawaban tetap disimpan di memori dan akan disinkronkan ke server saat online.' : 'Backup lokal tidak tersedia. Pastikan koneksi tetap aktif.');
+      setSaveStatus(navigator.onLine ? 'local-only' : 'error');
+    }
+  }, [attempt, currentIndex, answers, flagged, revision, lastSyncAt]);
+
+  const syncAnswers = useCallback(async (force = false) => {
+    if (!session || !attempt || syncInFlight.current || attempt.status !== 'IN_PROGRESS') return;
+    if (!navigator.onLine) { setSaveStatus('offline'); return; }
+    if (!force && dirtyCount === 0) return;
+    syncInFlight.current = true; setSaveStatus('syncing');
+    try {
+      const response = await getExamApi().saveAnswers(session.token, attempt.attemptId, revision + 1, answers);
+      setRevision(response.revision); setLastSyncAt(response.lastSyncAt); setDirtyCount(0); setSaveStatus('synced');
+      await persistLocal({ revision: response.revision, lastSyncAt: response.lastSyncAt });
+    } catch {
+      setSaveStatus(navigator.onLine ? 'error' : 'offline');
+    } finally { syncInFlight.current = false; }
+  }, [session, attempt, dirtyCount, revision, answers, persistLocal]);
+
+  useEffect(() => {
+    if (phase !== 'exam') return;
+    const id = window.setInterval(() => syncAnswers(false), 30_000);
+    return () => window.clearInterval(id);
+  }, [phase, syncAnswers]);
+
+  useEffect(() => {
+    if (phase === 'exam' && dirtyCount >= 5) syncAnswers(true);
+  }, [phase, dirtyCount, syncAnswers]);
+
+  useEffect(() => {
+    if (phase !== 'exam') return;
+    const onOnline = () => syncAnswers(true);
+    const onVisibility = () => { if (document.visibilityState === 'hidden') syncAnswers(true); };
+    window.addEventListener('online', onOnline); document.addEventListener('visibilitychange', onVisibility);
+    return () => { window.removeEventListener('online', onOnline); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [phase, syncAnswers]);
+
+  const begin = async () => {
+    if (!session || !summary) return;
+    if (!navigator.onLine && summary.attemptStatus !== 'IN_PROGRESS') { setError('Koneksi internet diperlukan untuk memulai attempt baru.'); return; }
+    setError(''); setPhase('starting');
+    try {
+      let response;
+      const local = await findLocalAttemptByExam(examId);
+      if (summary.attemptStatus === 'IN_PROGRESS' && summary.attemptId) {
+        response = await getExamApi().resumeAttempt(session.token, summary.attemptId, 0, 10);
+        setAttempt(response.attempt); mergeQuestions(response.questions); setAnswers({ ...response.answers, ...(local?.answers || {}) });
+        setFlagged(local?.flagged || []); setCurrentIndex(Math.min(local?.currentIndex || 0, response.attempt.questionCount - 1)); setRevision(Math.max(response.attempt.revision, local?.revision || 0));
+      } else {
+        const started = await getExamApi().startExam(session.token, examId, examToken || undefined);
+        setAttempt(started.attempt); mergeQuestions(started.initialQuestions); setAnswers({}); setCurrentIndex(0); setRevision(started.attempt.revision);
+      }
+      setSaveStatus('synced'); setPhase('exam');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Gagal memulai ujian.'); setPhase('preflight'); }
+  };
+
+  useEffect(() => {
+    if (phase !== 'exam' || !attempt || !session) return;
+    if (loadedCount >= attempt.questionCount || currentIndex < Math.max(0, loadedCount - 3) || prefetchInFlight.current) return;
+    prefetchInFlight.current = true;
+    getExamApi().getQuestionsBatch(session.token, attempt.attemptId, loadedCount, attempt.batchSize || 10)
+      .then((response) => mergeQuestions(response.questions))
+      .catch(() => undefined)
+      .finally(() => { prefetchInFlight.current = false; });
+  }, [phase, attempt, session, loadedCount, currentIndex, mergeQuestions]);
+
+  useEffect(() => {
+    if (!attempt || (phase !== 'exam' && phase !== 'review')) return;
+    const update = () => setRemainingMs(new Date(attempt.expiresAt).getTime() - Date.now());
+    update(); const id = window.setInterval(update, 1000); return () => window.clearInterval(id);
+  }, [attempt, phase]);
+
+  const chooseAnswer = (questionId: string, value: string) => {
+    const nextAnswers = { ...answers, [questionId]: value };
+    setAnswers(nextAnswers); setDirtyCount((count) => count + 1); setSaveStatus(online ? 'local-only' : 'offline');
+    persistLocal({ answers: nextAnswers });
+  };
+
+  const toggleFlag = () => {
+    if (!currentQuestion) return;
+    const next = flagged.includes(currentQuestion.questionId) ? flagged.filter((id) => id !== currentQuestion.questionId) : [...flagged, currentQuestion.questionId];
+    setFlagged(next); persistLocal({ flagged: next });
+  };
+
+  const moveTo = (index: number) => {
+    if (index < 0 || index >= totalQuestions) return;
+    setCurrentIndex(index); persistLocal({ currentIndex: index });
+  };
+
+  const finalize = useCallback(async (expired = false) => {
+    if (!session || !attempt || phase === 'submitting' || phase === 'submitted') return;
+    setPhase('submitting'); setError('');
+    try {
+      if (navigator.onLine) await syncAnswers(true);
+      const submissionId = typeof crypto !== 'undefined' && crypto.randomUUID ? `SUB-${crypto.randomUUID()}` : `SUB-${Date.now()}`;
+      const response = await getExamApi().submitExam(session.token, { attemptId: attempt.attemptId, submissionId, revision: revision + 1, answers });
+      setResult(response.result || null); await deleteLocalAttempt(attempt.attemptId); setPhase('submitted');
+    } catch (err) {
+      setError(`${expired ? 'Waktu ujian telah habis. ' : ''}${err instanceof Error ? err.message : 'Jawaban belum berhasil dikirim.'} Backup lokal belum dihapus.`);
+      setPhase('review');
+    }
+  }, [session, attempt, phase, syncAnswers, revision, answers]);
+
+  useEffect(() => {
+    if ((phase === 'exam' || phase === 'review') && remainingMs <= 0 && attempt && !autoSubmitStarted.current) {
+      autoSubmitStarted.current = true;
+      finalize(true);
+    }
+  }, [remainingMs, phase, attempt, finalize]);
+
+  const saveLabel = saveStatus === 'synced' ? 'Semua jawaban tersimpan' : saveStatus === 'syncing' ? 'Menyimpan jawaban...' : saveStatus === 'offline' ? 'Offline • tersimpan sementara' : saveStatus === 'local-only' ? 'Tersimpan di perangkat' : 'Sinkronisasi tertunda';
+
+  if (phase === 'loading') return <AuthGuard role="student"><div className="center-screen"><LoaderCircle className="spin"/><span>Memeriksa ujian...</span></div></AuthGuard>;
+
+  if (phase === 'error' || !summary) return <AuthGuard role="student"><StudentShell hideNav><div className="exam-error-page"><AlertTriangle size={42}/><h1>Ujian tidak dapat dibuka</h1><p>{error || 'Data ujian tidak tersedia.'}</p><button className="button primary" onClick={() => router.replace('/student')}>Kembali ke beranda</button></div></StudentShell></AuthGuard>;
+
+  if (phase === 'preflight' || phase === 'starting') return <AuthGuard role="student"><StudentShell hideNav>
+    <div className="preexam-page"><button className="text-button" onClick={() => router.push('/student')}><ArrowLeft size={18}/>Beranda</button>
+      <section className="preexam-card"><Badge tone="primary">{summary.subject}</Badge><h1>{summary.title}</h1><p className="preexam-class">{summary.className}</p>
+        <div className="preexam-grid"><div><span>Jumlah soal</span><strong>{summary.questionCount}</strong></div><div><span>Durasi</span><strong>{formatDuration(summary.durationMinutes)}</strong></div><div><span>Mulai</span><strong>{formatDateTime(summary.startTime)}</strong></div><div><span>Selesai</span><strong>{formatDateTime(summary.endTime)}</strong></div></div>
+        {'instructions' in summary && <div className="instructions">Kerjakan ujian secara mandiri. Jangan menutup aplikasi sebelum status pengumpulan berhasil.</div>}
+      </section>
+      <section className="readiness-card"><div className="section-title"><div><span className="eyebrow">PRE-FLIGHT</span><h2>Kesiapan ujian</h2></div><ShieldCheck className="primary-text"/></div>
+        <div className="readiness-list"><div><span className={online ? 'ready-dot ok' : 'ready-dot no'}>{online ? <Check/> : <AlertTriangle/>}</span><div><strong>Koneksi internet</strong><small>{online ? 'Tersedia untuk memulai dan sinkronisasi.' : 'Tidak tersedia. Sambungkan internet untuk memulai.'}</small></div></div><div><span className={preflight?.indexedDbAvailable ? 'ready-dot ok' : 'ready-dot warn'}>{preflight?.indexedDbAvailable ? <Check/> : <AlertTriangle/>}</span><div><strong>Backup jawaban lokal</strong><small>{preflight?.indexedDbAvailable ? 'IndexedDB siap digunakan.' : 'Tidak tersedia; aplikasi akan mengandalkan memori dan server.'}</small></div></div><div><span className="ready-dot ok"><Check/></span><div><strong>Storage ringan</strong><small>{preflight?.quotaBytes ? `${formatBytes(preflight.usageBytes)} terpakai dari estimasi ${formatBytes(preflight.quotaBytes)} kuota aplikasi.` : 'Aplikasi hanya menyimpan backup jawaban berukuran kecil.'}</small></div></div><div><span className="ready-dot ok"><Check/></span><div><strong>Timer server</strong><small>Durasi divalidasi backend dan tidak bergantung pada jam HP.</small></div></div></div>
+        {summary.tokenRequired && <label className="token-field">Token ujian<input value={examToken} onChange={(e) => setExamToken(e.target.value.toUpperCase())} placeholder="Masukkan token" autoCapitalize="characters"/></label>}
+        {storageWarning && <div className="notice warning"><AlertTriangle size={18}/>{storageWarning}</div>}
+        {error && <div className="notice danger">{error}</div>}
+        <button className="button primary full" disabled={!online || phase === 'starting' || (summary.tokenRequired && !examToken)} onClick={begin}>{phase === 'starting' ? <><LoaderCircle className="spin" size={19}/>Menyiapkan soal...</> : summary.attemptStatus === 'IN_PROGRESS' ? <><RefreshCw size={19}/>Lanjutkan ujian</> : <><ShieldCheck size={19}/>Mulai ujian</>}</button>
+        <p className="small-note">Timer baru berjalan setelah attempt dan batch soal awal berhasil disiapkan.</p>
+      </section>
+    </div>
+  </StudentShell></AuthGuard>;
+
+  if (phase === 'submitted') return <AuthGuard role="student"><StudentShell hideNav><div className="submitted-page"><div className="success-ring"><CheckCircle2 size={46}/></div><span className="eyebrow">BERHASIL DIKUMPULKAN</span><h1>Jawaban Anda sudah diterima.</h1><p>Attempt <code>{attempt?.attemptId}</code> telah ditutup dan backup lokal dihapus setelah server memberikan acknowledgement.</p>{result?.visible ? <div className="final-score"><strong>{result.score}</strong><span>Nilai</span><div><span>{result.correctCount} benar</span><span>{result.wrongCount} salah</span><span>{result.blankCount} kosong</span></div></div> : <div className="notice neutral">Nilai belum ditampilkan sesuai pengaturan ujian.</div>}<button className="button primary" onClick={() => router.replace('/student')}>Kembali ke beranda</button></div></StudentShell></AuthGuard>;
+
+  if (phase === 'review' || phase === 'submitting') return <AuthGuard role="student"><StudentShell hideNav><div className="review-page"><button className="text-button" disabled={phase === 'submitting'} onClick={() => setPhase('exam')}><ArrowLeft size={18}/>Kembali ke soal</button><span className="eyebrow">REVIEW</span><h1>Periksa sebelum mengirim</h1><p>Setelah berhasil dikumpulkan, jawaban tidak dapat diubah kembali.</p><div className="review-stats"><div><strong>{answeredCount}</strong><span>Terjawab</span></div><div><strong>{Math.max(0, totalQuestions - answeredCount)}</strong><span>Belum dijawab</span></div><div><strong>{flagged.length}</strong><span>Ragu-ragu</span></div></div>{error && <div className="notice danger">{error}</div>}<div className="number-grid review-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''}`} onClick={() => { moveTo(idx); setPhase('exam'); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button primary full" disabled={phase === 'submitting' || !online} onClick={() => finalize(false)}>{phase === 'submitting' ? <><LoaderCircle className="spin" size={19}/>Mengirim jawaban...</> : <><Send size={19}/>Kirim jawaban</>}</button>{!online && <div className="notice warning"><CloudOff size={18}/>Sambungkan internet untuk final submit. Jawaban tetap tersimpan sementara.</div>}</div></StudentShell></AuthGuard>;
+
+  return <AuthGuard role="student"><StudentShell hideNav>
+    <div className="exam-screen">
+      <header className="exam-topbar"><div><button className="icon-button" onClick={() => setPhase('review')} aria-label="Review ujian"><Grid3X3 size={20}/></button><div><strong>{summary.title}</strong><span>Soal {currentIndex + 1} dari {totalQuestions}</span></div></div><div className={remainingMs < 5 * 60_000 ? 'timer danger' : 'timer'}><Clock3 size={18}/><strong>{formatCountdown(remainingMs)}</strong></div></header>
+      <div className={`sync-strip ${saveStatus}`} >{saveStatus === 'syncing' ? <CloudUpload className="spin-soft" size={15}/> : saveStatus === 'offline' ? <CloudOff size={15}/> : <Check size={15}/>}<span>{saveLabel}{lastSyncAt && saveStatus === 'synced' ? ` • ${new Date(lastSyncAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}</span></div>
+      {storageWarning && <div className="exam-storage-warning"><AlertTriangle size={15}/>{storageWarning}</div>}
+      <main className="question-area">
+        <div className="question-progress"><div style={{ width: `${((currentIndex + 1) / Math.max(1, totalQuestions)) * 100}%` }}/></div>
+        {!currentQuestion ? <div className="question-loading"><LoaderCircle className="spin"/><strong>Memuat soal berikutnya...</strong><small>Prefetch sedang menyiapkan batch soal.</small></div> : <>
+          <div className="question-heading"><div><span className="question-number">{String(currentIndex + 1).padStart(2, '0')}</span><span className="question-tag">{currentQuestion.tag || summary.subject}</span></div><button className={flagged.includes(currentQuestion.questionId) ? 'flag-button active' : 'flag-button'} onClick={toggleFlag}><Flag size={17}/>{flagged.includes(currentQuestion.questionId) ? 'Ditandai' : 'Ragu-ragu'}</button></div>
+          <article className="question-card"><p className="question-text">{currentQuestion.text}</p>{currentQuestion.imageUrl && <img className="question-image" src={currentQuestion.imageUrl} alt="Ilustrasi soal"/>}
+            <div className="option-list">{currentQuestion.options.map((option, idx) => { const selected = answers[currentQuestion.questionId] === option.key; return <button key={`${currentQuestion.questionId}-${option.key}`} className={selected ? 'option-card selected' : 'option-card'} onClick={() => chooseAnswer(currentQuestion.questionId, option.key)}><span className="option-letter">{String.fromCharCode(65 + idx)}</span><span>{option.label}</span><span className="option-check">{selected ? <Check size={17}/> : <Circle size={17}/>}</span></button>; })}</div>
+          </article>
+        </>}
+      </main>
+      <footer className="exam-footer"><button className="button secondary" disabled={currentIndex === 0} onClick={() => moveTo(currentIndex - 1)}><ArrowLeft size={18}/>Sebelumnya</button>{currentIndex < totalQuestions - 1 ? <button className="button primary" onClick={() => moveTo(currentIndex + 1)}>Berikutnya<ArrowRight size={18}/></button> : <button className="button primary" onClick={() => { syncAnswers(true); setPhase('review'); }}>Review<CheckCircle2 size={18}/></button>}</footer>
+    </div>
+    <Modal open={navigatorOpen} onClose={() => setNavigatorOpen(false)} title="Daftar nomor soal" size="small"><div className="navigator-legend"><span><i className="answered"/>Terjawab</span><span><i/>Belum</span><span><i className="flagged"/>Ragu</span></div><div className="number-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''} ${idx === currentIndex ? 'current' : ''}`} onClick={() => { moveTo(idx); setNavigatorOpen(false); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button secondary full modal-review-button" onClick={() => { setNavigatorOpen(false); setPhase('review'); }}>Review & kumpulkan</button></Modal>
+    <button className="floating-navigator" onClick={() => setNavigatorOpen(true)}><Grid3X3 size={20}/><span>{answeredCount}/{totalQuestions}</span></button>
+  </StudentShell></AuthGuard>;
+}

@@ -1,0 +1,56 @@
+import type {
+  AdminExamInput,
+  AdminQuestionInput,
+  AdminResultRow,
+  AdminStudentInput,
+  DashboardStats,
+  ExamRecord,
+  ExamResult,
+  ExamSummary,
+  MonitoringRow,
+  Question,
+  QuestionRecord,
+  ResumeAttemptResponse,
+  SaveAnswersResponse,
+  Session,
+  StartExamResponse,
+  StudentRecord,
+  TeacherInput,
+  TeacherRecord,
+  SubmitResponse,
+  UploadImageResponse,
+} from './types';
+
+export interface ExamApi {
+  login(username: string, password: string): Promise<Session>;
+  logout(token: string): Promise<void>;
+  getSession(token: string): Promise<Session>;
+
+  getAvailableExams(token: string): Promise<ExamSummary[]>;
+  startExam(token: string, examId: string, examToken?: string): Promise<StartExamResponse>;
+  resumeAttempt(token: string, attemptId: string, offset?: number, limit?: number): Promise<ResumeAttemptResponse>;
+  getQuestionsBatch(token: string, attemptId: string, offset: number, limit: number): Promise<{ questions: Question[]; offset: number; hasMore: boolean }>;
+  saveAnswers(token: string, attemptId: string, revision: number, answers: Record<string, string>): Promise<SaveAnswersResponse>;
+  submitExam(token: string, input: { attemptId: string; submissionId: string; revision: number; answers: Record<string, string> }): Promise<SubmitResponse>;
+  getResult(token: string, attemptId: string): Promise<ExamResult | null>;
+  getMyResults(token: string): Promise<ExamResult[]>;
+
+  getDashboardStats(token: string): Promise<DashboardStats>;
+  listExams(token: string): Promise<ExamRecord[]>;
+  saveExam(token: string, input: AdminExamInput): Promise<ExamRecord>;
+  deleteExam(token: string, examId: string): Promise<void>;
+  duplicateExam(token: string, examId: string): Promise<ExamRecord>;
+  listQuestions(token: string, examId?: string): Promise<QuestionRecord[]>;
+  saveQuestion(token: string, input: AdminQuestionInput): Promise<QuestionRecord>;
+  deleteQuestion(token: string, questionId: string): Promise<void>;
+  importQuestionsCsv(token: string, csvText: string): Promise<{ imported: number; errors: string[] }>;
+  uploadQuestionImage(token: string, file: { name: string; mimeType: string; base64: string }): Promise<UploadImageResponse>;
+  listStudents(token: string): Promise<StudentRecord[]>;
+  saveStudent(token: string, input: AdminStudentInput): Promise<StudentRecord>;
+  deleteStudent(token: string, userId: string): Promise<void>;
+  listTeachers(token: string): Promise<TeacherRecord[]>;
+  saveTeacher(token: string, input: TeacherInput): Promise<TeacherRecord>;
+  deleteTeacher(token: string, userId: string): Promise<void>;
+  getMonitoring(token: string, examId?: string): Promise<MonitoringRow[]>;
+  getAdminResults(token: string, examId?: string): Promise<AdminResultRow[]>;
+}
