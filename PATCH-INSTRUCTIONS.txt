@@ -1,22 +1,77 @@
-SainsMasemba PATCH v2.1.1 — Vercel TypeScript Fix
-==================================================
+SAINSMAMBA PATCH APPS SCRIPT SETUP v2.1.2
+==========================================
 
-FILE YANG WAJIB DIGANTI:
-  src/lib/api/demo-api.ts
+PATCH INI MENGIKUTI POLA SETUP INOVASI MEDIA.
 
-CARA PASANG:
-1. Extract ZIP patch ini.
-2. Copy folder `src` ke root repository SainsMasemba Anda.
-3. Pilih Replace/Overwrite ketika diminta.
-4. Pastikan file berikut berubah:
-     src/lib/api/demo-api.ts
-5. Commit dan push ke GitHub:
-     git add src/lib/api/demo-api.ts
-     git commit -m "fix: normalize question text for Vercel build"
-     git push origin main
-6. Vercel akan redeploy otomatis.
+FILE YANG DIGANTI/DITAMBAH:
+1. apps-script/Setup.gs         -> GANTI file lama
+2. apps-script/StorageConfig.gs -> TAMBAHKAN file baru
 
-CATATAN:
-- package.json TIDAK wajib diganti untuk memperbaiki error build ini.
-- Patch memperbaiki TypeScript error `string | undefined` pada QuestionRecord.questionText.
-- Patch juga mempertahankan Bank Soal saat ujian dihapus pada Demo API; yang dihapus hanya mapping ujian.
+LANGKAH SETUP
+-------------
+1. Buat satu Google Spreadsheet kosong khusus SainsMasemba.
+2. Buat satu folder Google Drive khusus gambar soal SainsMasemba.
+3. Copy Spreadsheet ID dari URL:
+   https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+4. Copy Folder ID dari URL:
+   https://drive.google.com/drive/folders/DRIVE_FOLDER_ID
+5. Buka StorageConfig.gs lalu isi:
+
+   SPREADSHEET_ID: '...'
+   DRIVE_FOLDER_ID: '...'
+   SUPER_ADMIN_PASSWORD: 'password-awal-minimal-8-karakter'
+
+6. Di Apps Script pilih fungsi setupSainsMasemba lalu klik Run.
+7. Berikan permission Google saat diminta.
+8. Setup otomatis:
+   - memvalidasi Spreadsheet & folder Drive;
+   - menyimpan ID ke Script Properties;
+   - membuat sheet yang belum ada;
+   - menulis header kolom otomatis;
+   - memformat header;
+   - membuat Super Admin bila belum ada;
+   - menjalankan migrasi schema lama secara aman.
+
+SHEET YANG DIBUAT
+-----------------
+USERS
+EXAMS
+QUESTIONS
+EXAM_QUESTIONS
+ANSWER_KEYS
+ATTEMPTS
+SUBMISSIONS
+SESSIONS
+AUDIT_LOG
+
+FUNGSI YANG TERSEDIA DI DROPDOWN APPS SCRIPT
+--------------------------------------------
+setupSainsMasemba()
+  Setup awal. Aman dijalankan ulang dan tidak menghapus data.
+
+repairSainsMasemba()
+  Memeriksa/memperbarui schema setelah update aplikasi tanpa reset data.
+
+showConfiguration()
+  Menampilkan Spreadsheet ID, URL Spreadsheet, Folder ID dan URL Drive aktif.
+
+resetSuperAdminPassword()
+  Reset password Super Admin.
+
+RESET PASSWORD SUPER ADMIN
+--------------------------
+1. Buka StorageConfig.gs.
+2. Isi:
+   RESET_SUPER_ADMIN_PASSWORD: 'PasswordBaruAnda'
+3. Pilih resetSuperAdminPassword() lalu Run.
+4. Password di-hash ulang dan semua session Super Admin lama dihapus.
+5. Setelah selesai, kembalikan RESET_SUPER_ADMIN_PASSWORD ke placeholder agar
+   tidak tidak sengaja dijalankan ulang dengan password yang sama.
+
+CATATAN KEAMANAN
+----------------
+Jika repository GitHub Anda PUBLIC, JANGAN commit password produksi di
+StorageConfig.gs. Biarkan placeholder di GitHub, lalu isi password langsung
+pada editor Apps Script.
+
+CREATE_DEMO_ACCOUNTS dan CREATE_DEMO_EXAM default = false untuk production.
