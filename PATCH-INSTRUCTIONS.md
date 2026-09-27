@@ -1,20 +1,25 @@
-# SainsMasemba HOTFIX v2.1.9a — Vercel Build
+# SainsMasemba HOTFIX v2.1.9b — Vercel Build
 
-Masalah:
-`src/app/student/page.tsx` memakai `exam.availableNow`, tetapi interface `ExamSummary` belum memiliki properti tersebut.
+Memperbaiki error TypeScript:
 
-Perbaikan:
-Menambahkan:
+`Property 'superAdmin' does not exist on type '{ children: ReactNode; }'`
 
-```ts
-availableNow?: boolean;
+Penyebab: `AdminShell` menentukan mode super-admin dari `session.user.role`, sehingga prop `superAdmin` tidak pernah didefinisikan dan tidak perlu dikirim.
+
+## File yang diganti
+
+`src/app/super-admin/monitoring/page.tsx`
+
+Perubahan:
+
+```tsx
+<AdminShell superAdmin>
 ```
 
-ke interface `ExamSummary` pada `src/lib/api/types.ts`.
+menjadi:
 
-## Cara pasang
-1. Replace file `src/lib/api/types.ts` dengan file dari patch ini.
-2. Commit dan push ke GitHub.
-3. Vercel akan build ulang otomatis.
+```tsx
+<AdminShell>
+```
 
-Tidak perlu mengubah Apps Script, menjalankan setup, repair, atau deploy Apps Script.
+Tidak ada perubahan Apps Script, Google Sheets, atau environment variables.
