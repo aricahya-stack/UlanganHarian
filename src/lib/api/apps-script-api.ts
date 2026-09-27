@@ -4,6 +4,8 @@ import type {
   AdminQuestionInput,
   AdminResultRow,
   AdminStudentInput,
+  ImportStudentRow,
+  ImportStudentsResult,
   AdminUserInput,
   DashboardStats,
   ExamRecord,
@@ -84,6 +86,7 @@ export class GoogleAppsScriptExamApi implements ExamApi {
   listStudents(token: string) { return this.request<StudentRecord[]>('listStudents', { token }); }
   saveStudent(token: string, input: AdminStudentInput) { return this.request<StudentRecord>('saveStudent', { token, input }); }
   deleteStudent(token: string, userId: string) { return this.request<void>('deleteStudent', { token, userId }); }
+  importStudents(token: string, rows: ImportStudentRow[], defaultPassword?: string) { return this.request<ImportStudentsResult>('importStudents', { token, rows, defaultPassword }); }
   listUsers(token: string) { return this.request<User[]>('listUsers', { token }); }
   saveUser(token: string, input: AdminUserInput) { return this.request<User>('saveUser', { token, input }); }
   deleteUser(token: string, userId: string) { return this.request<void>('deleteUser', { token, userId }); }

@@ -178,4 +178,6 @@ export interface AdminQuestionInput {
 export interface ExamQuestionMapping { examId: string; questionId: string; orderNo: number; }
 
 export interface AdminStudentInput { userId?: string; name: string; username: string; email?: string; phone?: string; className: string; password?: string; status: 'ACTIVE' | 'INACTIVE'; }
+export interface ImportStudentRow { name: string; username: string; className: string; password?: string; email?: string; phone?: string; status: 'ACTIVE' | 'INACTIVE'; }
+export interface ImportStudentsResult { created: number; updated: number; skipped: number; errors: string[]; }
 export interface UploadImageResponse { fileId: string; imageUrl: string; name: string; }

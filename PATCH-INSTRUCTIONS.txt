@@ -1,77 +1,76 @@
-SAINSMAMBA PATCH APPS SCRIPT SETUP v2.1.2
-==========================================
+SAINSMAMBA PATCH v2.1.3 — IMPORT PESERTA DARI EXCEL
+====================================================
 
-PATCH INI MENGIKUTI POLA SETUP INOVASI MEDIA.
+FITUR BARU
+- Menu Peserta Super Admin: tombol Import Excel.
+- Menu Peserta Guru: tombol Import Excel.
+- Download template Excel langsung dari modal import.
+- Preview data sebelum import.
+- Password default opsional untuk peserta baru.
+- Username yang sudah ada (role student) diperbarui / upsert.
+- Username milik Guru / Super Admin tidak akan ditimpa.
+- Validasi baris dan laporan error.
+- Backend Apps Script batch write agar import banyak peserta lebih ringan.
+- Maksimal 5.000 peserta per proses import.
 
-FILE YANG DIGANTI/DITAMBAH:
-1. apps-script/Setup.gs         -> GANTI file lama
-2. apps-script/StorageConfig.gs -> TAMBAHKAN file baru
+KOLOM TEMPLATE
+- nama_lengkap (wajib)
+- username (wajib; NIS/NISN juga dapat dipakai sebagai header)
+- kelas (wajib)
+- password (wajib untuk peserta baru jika Password Default tidak diisi)
+- email (opsional)
+- no_hp (opsional)
+- status (ACTIVE / INACTIVE; default ACTIVE)
 
-LANGKAH SETUP
--------------
-1. Buat satu Google Spreadsheet kosong khusus SainsMasemba.
-2. Buat satu folder Google Drive khusus gambar soal SainsMasemba.
-3. Copy Spreadsheet ID dari URL:
-   https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
-4. Copy Folder ID dari URL:
-   https://drive.google.com/drive/folders/DRIVE_FOLDER_ID
-5. Buka StorageConfig.gs lalu isi:
+FILE FRONTEND YANG HARUS DI-REPLACE DI GITHUB
+1. src/components/student-import-modal.tsx            [BARU]
+2. src/app/super-admin/students/page.tsx             [REPLACE]
+3. src/app/teacher/students/page.tsx                 [REPLACE]
+4. src/app/globals.css                               [REPLACE]
+5. src/lib/api/types.ts                              [REPLACE]
+6. src/lib/api/exam-api.ts                           [REPLACE]
+7. src/lib/api/apps-script-api.ts                    [REPLACE]
+8. src/lib/api/demo-api.ts                           [REPLACE]
+9. public/templates/student-import-template.xlsx     [BARU]
 
-   SPREADSHEET_ID: '...'
-   DRIVE_FOLDER_ID: '...'
-   SUPER_ADMIN_PASSWORD: 'password-awal-minimal-8-karakter'
+FILE GOOGLE APPS SCRIPT YANG HARUS DI-REPLACE
+10. apps-script/Admin.gs                             [REPLACE]
+11. apps-script/Code.gs                              [REPLACE]
 
-6. Di Apps Script pilih fungsi setupSainsMasemba lalu klik Run.
-7. Berikan permission Google saat diminta.
-8. Setup otomatis:
-   - memvalidasi Spreadsheet & folder Drive;
-   - menyimpan ID ke Script Properties;
-   - membuat sheet yang belum ada;
-   - menulis header kolom otomatis;
-   - memformat header;
-   - membuat Super Admin bila belum ada;
-   - menjalankan migrasi schema lama secara aman.
+LANGKAH FRONTEND
+1. Copy folder/file patch ke root repository GitHub SainsMasemba.
+2. Replace file bila diminta.
+3. Commit + push ke branch main.
+4. Vercel akan redeploy otomatis.
 
-SHEET YANG DIBUAT
------------------
-USERS
-EXAMS
-QUESTIONS
-EXAM_QUESTIONS
-ANSWER_KEYS
-ATTEMPTS
-SUBMISSIONS
-SESSIONS
-AUDIT_LOG
+LANGKAH APPS SCRIPT (WAJIB)
+1. Buka project Google Apps Script SainsMasemba.
+2. Replace isi Admin.gs dengan file patch apps-script/Admin.gs.
+3. Replace isi Code.gs dengan file patch apps-script/Code.gs.
+4. Save.
+5. Deploy > Manage deployments.
+6. Klik Edit (ikon pensil) pada Web App aktif.
+7. Version: pilih New version.
+8. Deploy.
+9. URL /exec biasanya tetap sama, jadi Environment Variable Vercel tidak perlu diubah.
 
-FUNGSI YANG TERSEDIA DI DROPDOWN APPS SCRIPT
---------------------------------------------
-setupSainsMasemba()
-  Setup awal. Aman dijalankan ulang dan tidak menghapus data.
+CARA IMPORT
+1. Login sebagai Super Admin atau Guru.
+2. Menu Peserta > Import Excel.
+3. Download template.
+4. Isi peserta di sheet "Peserta".
+5. Upload file .xlsx / .xls.
+6. Periksa preview.
+7. Bila banyak akun baru tidak memiliki password di Excel, isi Password Default.
+8. Klik Import Peserta.
+9. Periksa ringkasan Dibuat / Diperbarui / Dilewati / Error.
 
-repairSainsMasemba()
-  Memeriksa/memperbarui schema setelah update aplikasi tanpa reset data.
+PERILAKU UPDATE
+- Username baru -> membuat peserta baru.
+- Username peserta sudah ada -> update nama, kelas, email, no HP, status.
+- Password peserta lama hanya berubah bila kolom password Excel diisi.
+- Username yang sudah dipakai akun Guru/Super Admin -> error, tidak ditimpa.
+- Username duplikat dalam file Excel -> baris kedua dan seterusnya dilewati.
 
-showConfiguration()
-  Menampilkan Spreadsheet ID, URL Spreadsheet, Folder ID dan URL Drive aktif.
-
-resetSuperAdminPassword()
-  Reset password Super Admin.
-
-RESET PASSWORD SUPER ADMIN
---------------------------
-1. Buka StorageConfig.gs.
-2. Isi:
-   RESET_SUPER_ADMIN_PASSWORD: 'PasswordBaruAnda'
-3. Pilih resetSuperAdminPassword() lalu Run.
-4. Password di-hash ulang dan semua session Super Admin lama dihapus.
-5. Setelah selesai, kembalikan RESET_SUPER_ADMIN_PASSWORD ke placeholder agar
-   tidak tidak sengaja dijalankan ulang dengan password yang sama.
-
-CATATAN KEAMANAN
-----------------
-Jika repository GitHub Anda PUBLIC, JANGAN commit password produksi di
-StorageConfig.gs. Biarkan placeholder di GitHub, lalu isi password langsung
-pada editor Apps Script.
-
-CREATE_DEMO_ACCOUNTS dan CREATE_DEMO_EXAM default = false untuk production.
+CATATAN
+Tidak ada perubahan pada ID Spreadsheet, Folder Drive, atau Environment Variable Vercel.

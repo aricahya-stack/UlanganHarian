@@ -3,6 +3,8 @@ import type {
   AdminQuestionInput,
   AdminResultRow,
   AdminStudentInput,
+  ImportStudentRow,
+  ImportStudentsResult,
   AdminUserInput,
   DashboardStats,
   ExamRecord,
@@ -52,6 +54,7 @@ export interface ExamApi {
   listStudents(token: string): Promise<StudentRecord[]>;
   saveStudent(token: string, input: AdminStudentInput): Promise<StudentRecord>;
   deleteStudent(token: string, userId: string): Promise<void>;
+  importStudents(token: string, rows: ImportStudentRow[], defaultPassword?: string): Promise<ImportStudentsResult>;
   listUsers(token: string): Promise<User[]>;
   saveUser(token: string, input: AdminUserInput): Promise<User>;
   deleteUser(token: string, userId: string): Promise<void>;

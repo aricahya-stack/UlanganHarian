@@ -29,6 +29,38 @@ function parseCsvLine_(line){const out=[];let cur='',quoted=false;for(let i=0;i<
 function listStudents_(payload){requireManager_(payload.token);return rows_('USERS').filter(u=>String(u.role)==='student').map(sanitizeUser_);}
 function saveStudent_(payload){const ctx=requireManager_(payload.token),input=payload.input||{},id=String(input.userId||uid_('S')),now=nowIso_();if(!input.name||!input.username||!input.className)throw apiError_('Nama, username, dan kelas wajib diisi.','BAD_REQUEST');const duplicate=rows_('USERS').find(u=>String(u.username).toLowerCase()===String(input.username).toLowerCase()&&String(u.userId)!==id);if(duplicate)throw apiError_('Username sudah digunakan.','DUPLICATE_USERNAME');const existing=findRowByKey_('USERS','userId',id);if(existing&&String(existing.role)!=='student')throw apiError_('Akun bukan siswa.','BAD_REQUEST');const salt=existing?String(existing.passwordSalt):Utilities.getUuid(),passwordHash=input.password?hashPassword_(input.password,salt):(existing?existing.passwordHash:'');if(!passwordHash)throw apiError_('Password wajib untuk peserta baru.','BAD_REQUEST');const obj={userId:id,name:String(input.name),email:String(input.email||''),phone:String(input.phone||''),className:String(input.className),subject:'',username:String(input.username),passwordHash,passwordSalt:salt,role:'student',status:String(input.status||'ACTIVE'),createdAt:existing?existing.createdAt:now,updatedAt:now};if(existing)updateRowByKey_('USERS','userId',id,obj);else appendObject_('USERS',obj);audit_(ctx.user.userId,'SAVE_STUDENT',id,{});return sanitizeUser_(findRowByKey_('USERS','userId',id));}
 function deleteStudent_(payload){const ctx=requireManager_(payload.token),user=findRowByKey_('USERS','userId',payload.userId);if(!user||String(user.role)!=='student')throw apiError_('Siswa tidak ditemukan.','NOT_FOUND');const used=rows_('ATTEMPTS').some(a=>String(a.studentId)===String(payload.userId));if(used)updateRowByKey_('USERS','userId',payload.userId,{status:'INACTIVE',updatedAt:nowIso_()});else deleteRowByKey_('USERS','userId',payload.userId);audit_(ctx.user.userId,'DELETE_STUDENT',payload.userId,{softDelete:used});return null;}
+function importStudents_(payload){
+  const ctx=requireManager_(payload.token),inputRows=Array.isArray(payload.rows)?payload.rows:[],defaultPassword=String(payload.defaultPassword||'');
+  if(!inputRows.length)return{created:0,updated:0,skipped:0,errors:['Tidak ada data peserta.']};
+  if(inputRows.length>5000)throw apiError_('Maksimal 5.000 peserta per proses import.','IMPORT_TOO_LARGE');
+  const lock=LockService.getScriptLock();lock.waitLock(20000);
+  try{
+    const sheet=getSheet_('USERS'),headers=sheetHeaders_('USERS'),data=sheet.getDataRange().getValues(),body=data.length>1?data.slice(1):[],index={};
+    const h={};headers.forEach((name,i)=>h[name]=i);
+    body.forEach((row,i)=>{const username=String(row[h.username]||'').trim().toLowerCase();if(username)index[username]={rowIndex:i,row:row};});
+    const seen={},errors=[];let created=0,updated=0,skipped=0;const now=nowIso_();
+    inputRows.forEach((raw,pos)=>{
+      const line=pos+2,name=String(raw.name||'').trim(),username=String(raw.username||'').trim(),className=String(raw.className||'').trim(),key=username.toLowerCase();
+      const status=String(raw.status||'ACTIVE').toUpperCase()==='INACTIVE'?'INACTIVE':'ACTIVE';
+      if(!name||!username||!className){errors.push('Baris '+line+': nama, username, dan kelas wajib diisi.');skipped++;return;}
+      if(seen[key]){errors.push('Baris '+line+': username '+username+' duplikat di file.');skipped++;return;}seen[key]=true;
+      const found=index[key];
+      if(found){
+        const row=found.row;if(String(row[h.role])!=='student'){errors.push('Baris '+line+': username '+username+' sudah dipakai akun non-siswa.');skipped++;return;}
+        row[h.name]=name;row[h.email]=String(raw.email||row[h.email]||'');row[h.phone]=String(raw.phone||row[h.phone]||'');row[h.className]=className;row[h.status]=status;row[h.updatedAt]=now;
+        const password=String(raw.password||'').trim();if(password){const salt=String(row[h.passwordSalt]||Utilities.getUuid());row[h.passwordSalt]=salt;row[h.passwordHash]=hashPassword_(password,salt);}
+        updated++;
+      }else{
+        const password=String(raw.password||defaultPassword||'').trim();if(!password){errors.push('Baris '+line+': password wajib untuk peserta baru '+username+' atau isi Password Default.');skipped++;return;}
+        const salt=Utilities.getUuid(),obj={userId:uid_('S'),name,email:String(raw.email||''),phone:String(raw.phone||''),className,subject:'',username,passwordHash:hashPassword_(password,salt),passwordSalt:salt,role:'student',status,createdAt:now,updatedAt:now};
+        const row=headers.map(col=>obj[col]===undefined?'':obj[col]);body.push(row);index[key]={rowIndex:body.length-1,row};created++;
+      }
+    });
+    if(body.length)sheet.getRange(2,1,body.length,headers.length).setValues(body);
+    audit_(ctx.user.userId,'IMPORT_STUDENTS','',{created,updated,skipped,errors:errors.length});
+    return{created,updated,skipped,errors};
+  }finally{lock.releaseLock();}
+}
 function listTeachers_(payload){requireSuperAdmin_(payload.token);return rows_('USERS').filter(u=>String(u.role)==='teacher').map(sanitizeUser_);}
 function saveTeacher_(payload){const ctx=requireSuperAdmin_(payload.token),input=payload.input||{},id=String(input.userId||uid_('T')),now=nowIso_();if(!input.name||!input.username||!input.subject)throw apiError_('Nama, username, dan mata pelajaran wajib diisi.','BAD_REQUEST');const duplicate=rows_('USERS').find(u=>String(u.username).toLowerCase()===String(input.username).toLowerCase()&&String(u.userId)!==id);if(duplicate)throw apiError_('Username sudah digunakan.','DUPLICATE_USERNAME');const existing=findRowByKey_('USERS','userId',id);if(existing&&String(existing.role)!=='teacher')throw apiError_('Akun bukan guru.','BAD_REQUEST');const salt=existing?String(existing.passwordSalt):Utilities.getUuid(),passwordHash=input.password?hashPassword_(input.password,salt):(existing?existing.passwordHash:'');if(!passwordHash)throw apiError_('Password wajib untuk guru baru.','BAD_REQUEST');const obj={userId:id,name:String(input.name),email:String(input.email||''),phone:String(input.phone||''),className:'',subject:String(input.subject),username:String(input.username),passwordHash,passwordSalt:salt,role:'teacher',status:String(input.status||'ACTIVE'),createdAt:existing?existing.createdAt:now,updatedAt:now};if(existing)updateRowByKey_('USERS','userId',id,obj);else appendObject_('USERS',obj);audit_(ctx.user.userId,'SAVE_TEACHER',id,{});return sanitizeUser_(findRowByKey_('USERS','userId',id));}
 function deleteTeacher_(payload){const ctx=requireSuperAdmin_(payload.token),id=String(payload.userId||''),user=findRowByKey_('USERS','userId',id);if(!user||String(user.role)!=='teacher')throw apiError_('Guru tidak ditemukan.','NOT_FOUND');if(rows_('EXAMS').some(e=>String(e.ownerId)===id))throw apiError_('Guru masih memiliki ujian. Pindahkan atau hapus ujian terlebih dahulu.','TEACHER_IN_USE');deleteRowByKey_('USERS','userId',id);audit_(ctx.user.userId,'DELETE_TEACHER',id,{});return null;}
