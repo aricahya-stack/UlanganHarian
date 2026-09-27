@@ -1,7 +1,8 @@
 'use client';
 
 import katex from 'katex';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { Minus, Plus, RotateCcw, X } from 'lucide-react';
 
 const DISPLAY_PLACEHOLDER_PREFIX = '%%SAINS_MASEMBA_KATEX_BLOCK_';
 const ALLOWED_TAGS = new Set([
@@ -180,8 +181,14 @@ function renderInlineMathInText(text: string) {
   });
 }
 
+function normalizePlainTextLineBreaks(source: string) {
+  const value = String(source || '');
+  const hasBlockMarkup = /<(?:p|div|br|ul|ol|li|table|blockquote|h[1-6])\b/i.test(value);
+  return hasBlockMarkup ? value : value.replace(/\r\n?|\n/g, '<br>');
+}
+
 export function renderMathHtml(html: string) {
-  const sanitized = sanitizeStoredHtml(String(html || ''));
+  const sanitized = sanitizeStoredHtml(normalizePlainTextLineBreaks(String(html || '')));
   const renderedBlocks: string[] = [];
   const protectedHtml = protectDisplayMath(sanitized, renderedBlocks);
   const renderedInline = protectedHtml
@@ -195,20 +202,65 @@ export function renderMathHtml(html: string) {
   );
 }
 
-export function MathHtml({ html, className }: { html: string; className?: string }) {
+type LightboxState = { src: string; alt: string } | null;
+
+function ImageLightbox({ image, onClose }: { image: NonNullable<LightboxState>; onClose: () => void }) {
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Pratinjau gambar soal" onClick={onClose}>
+    <div className="image-lightbox-toolbar" onClick={(event) => event.stopPropagation()}>
+      <button type="button" onClick={() => setZoom((value) => Math.max(.6, value - .2))} aria-label="Perkecil gambar"><Minus size={19}/></button>
+      <button type="button" onClick={() => setZoom(1)} aria-label="Kembalikan ukuran gambar"><RotateCcw size={18}/></button>
+      <button type="button" onClick={() => setZoom((value) => Math.min(3, value + .2))} aria-label="Perbesar gambar"><Plus size={19}/></button>
+      <span>{Math.round(zoom * 100)}%</span>
+      <button type="button" className="close" onClick={onClose} aria-label="Tutup gambar"><X size={20}/></button>
+    </div>
+    <div className="image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
+      <img src={image.src} alt={image.alt} draggable={false} style={{ transform: `scale(${zoom})` }}/>
+    </div>
+  </div>;
+}
+
+export function ZoomableImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [lightbox, setLightbox] = useState<LightboxState>(null);
+  return <>
+    <button type="button" className="zoomable-image-button" onClick={() => setLightbox({ src, alt })} aria-label={`${alt}. Klik untuk memperbesar`}>
+      <img className={className} src={src} alt={alt} draggable={false}/>
+    </button>
+    {lightbox && <ImageLightbox image={lightbox} onClose={() => setLightbox(null)}/>} 
+  </>;
+}
+
+export function MathHtml({ html, className, imageZoom = false }: { html: string; className?: string; imageZoom?: boolean }) {
   const [rendered, setRendered] = useState('');
+  const [lightbox, setLightbox] = useState<LightboxState>(null);
 
   useEffect(() => {
     setRendered(renderMathHtml(html || ''));
   }, [html]);
 
-  return (
+  const handleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!imageZoom) return;
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement)) return;
+    event.preventDefault();
+    setLightbox({ src: target.currentSrc || target.src, alt: target.alt || 'Gambar soal' });
+  };
+
+  return <>
     <div
-      className={className}
+      className={`${className || ''}${imageZoom ? ' image-zoom-enabled' : ''}`.trim()}
       style={{ maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden' }}
+      onClick={handleClick}
       dangerouslySetInnerHTML={{ __html: rendered }}
     />
-  );
+    {lightbox && <ImageLightbox image={lightbox} onClose={() => setLightbox(null)}/>} 
+  </>;
 }
 
 export function toSpeechText(value: string) {

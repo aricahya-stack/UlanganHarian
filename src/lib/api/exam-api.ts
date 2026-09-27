@@ -65,5 +65,6 @@ export interface ExamApi {
   saveTeacher(token: string, input: TeacherInput): Promise<TeacherRecord>;
   deleteTeacher(token: string, userId: string): Promise<void>;
   getMonitoring(token: string, examId?: string): Promise<MonitoringRow[]>;
+  resetAttempt(token: string, attemptId: string): Promise<{ attemptId: string; reset: boolean }>;
   getAdminResults(token: string, examId?: string): Promise<AdminResultRow[]>;
 }

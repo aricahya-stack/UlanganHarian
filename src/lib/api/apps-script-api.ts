@@ -97,5 +97,6 @@ export class GoogleAppsScriptExamApi implements ExamApi {
   saveTeacher(token: string, input: TeacherInput) { return this.request<TeacherRecord>('saveTeacher', { token, input }); }
   deleteTeacher(token: string, userId: string) { return this.request<void>('deleteTeacher', { token, userId }); }
   getMonitoring(token: string, examId?: string) { return this.request<MonitoringRow[]>('getMonitoring', { token, examId }); }
+  resetAttempt(token: string, attemptId: string) { return this.request<{ attemptId: string; reset: boolean }>('resetAttempt', { token, attemptId }); }
   getAdminResults(token: string, examId?: string) { return this.request<AdminResultRow[]>('getAdminResults', { token, examId }); }
 }

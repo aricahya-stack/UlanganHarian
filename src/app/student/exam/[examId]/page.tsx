@@ -6,13 +6,14 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, Cloc
 import { AuthGuard } from '@/components/auth-guard';
 import { StudentShell } from '@/components/student-shell';
 import { Badge, Modal } from '@/components/ui';
-import { MathHtml } from '@/components/math-html';
+import { MathHtml, ZoomableImage } from '@/components/math-html';
 import { useSession } from '@/contexts/session-context';
 import { getExamApi, type Attempt, type ExamResult, type ExamSummary, type PreflightResult, type Question, type SaveStatus } from '@/lib/api';
 import { checkStorageReadiness, deleteLocalAttempt, findLocalAttemptByExam, saveLocalAttempt } from '@/lib/exam-store';
 import { formatBytes, formatCountdown, formatDateTime, formatDuration } from '@/lib/format';
 
 type Phase = 'loading' | 'preflight' | 'starting' | 'exam' | 'review' | 'submitting' | 'submitted' | 'error';
+type ExamFontSize = 'small' | 'medium' | 'large';
 
 export default function ExamPage() {
   const params = useParams<{ examId: string }>();
@@ -38,6 +39,10 @@ export default function ExamPage() {
   const [error, setError] = useState('');
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
   const [result, setResult] = useState<ExamResult | null>(null);
+  const [fontSize, setFontSize] = useState<ExamFontSize>('medium');
+  const [focusViolationCount, setFocusViolationCount] = useState(0);
+  const [focusWarningOpen, setFocusWarningOpen] = useState(false);
+  const [securityNotice, setSecurityNotice] = useState('');
   const syncInFlight = useRef(false);
   const prefetchInFlight = useRef(false);
   const autoSubmitStarted = useRef(false);
@@ -52,6 +57,14 @@ export default function ExamPage() {
     update(); window.addEventListener('online', update); window.addEventListener('offline', update);
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('sainsmasemba.exam-font-size') as ExamFontSize | null;
+      if (saved === 'small' || saved === 'medium' || saved === 'large') setFontSize(saved);
+    } catch {}
+  }, []);
+
 
   useEffect(() => {
     if (!session) return;
@@ -126,15 +139,74 @@ export default function ExamPage() {
   }, [phase, dirtyCount, syncAnswers]);
 
   useEffect(() => {
-    if (phase !== 'exam') return;
+    if (phase !== 'exam' && phase !== 'review') return;
+    document.body.classList.add('exam-session-active');
     const onOnline = () => syncAnswers(true);
-    const onVisibility = () => { if (document.visibilityState === 'hidden') syncAnswers(true); };
-    window.addEventListener('online', onOnline); document.addEventListener('visibilitychange', onVisibility);
-    return () => { window.removeEventListener('online', onOnline); document.removeEventListener('visibilitychange', onVisibility); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        syncAnswers(true);
+        setFocusViolationCount((count) => count + 1);
+        setFocusWarningOpen(true);
+      }
+    };
+    const blockClipboard = (event: ClipboardEvent) => {
+      event.preventDefault();
+      setSecurityNotice('Salin, potong, dan tempel dinonaktifkan selama ujian.');
+    };
+    const blockContextMenu = (event: MouseEvent) => event.preventDefault();
+    const blockDrag = (event: DragEvent) => event.preventDefault();
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && ['c', 'x', 'v'].includes(key)) {
+        event.preventDefault();
+        setSecurityNotice('Salin, potong, dan tempel dinonaktifkan selama ujian.');
+      }
+      const screenshotShortcut = event.key === 'PrintScreen' || (event.metaKey && event.shiftKey && ['3', '4', '5'].includes(event.key));
+      if (screenshotShortcut) {
+        event.preventDefault();
+        setSecurityNotice('Tangkapan layar tidak diizinkan selama ujian.');
+        navigator.clipboard?.writeText('').catch(() => undefined);
+      }
+    };
+    const onBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('copy', blockClipboard);
+    document.addEventListener('cut', blockClipboard);
+    document.addEventListener('paste', blockClipboard);
+    document.addEventListener('contextmenu', blockContextMenu);
+    document.addEventListener('dragstart', blockDrag);
+    return () => {
+      document.body.classList.remove('exam-session-active');
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('copy', blockClipboard);
+      document.removeEventListener('cut', blockClipboard);
+      document.removeEventListener('paste', blockClipboard);
+      document.removeEventListener('contextmenu', blockContextMenu);
+      document.removeEventListener('dragstart', blockDrag);
+    };
   }, [phase, syncAnswers]);
+
+  const requestExamFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    } catch {}
+  };
+
+  const applyFontSize = (size: ExamFontSize) => {
+    setFontSize(size);
+    try { window.localStorage.setItem('sainsmasemba.exam-font-size', size); } catch {}
+  };
 
   const begin = async () => {
     if (!session || !summary) return;
+    requestExamFullscreen();
+    setFocusViolationCount(0); setFocusWarningOpen(false); setSecurityNotice('');
     if (!navigator.onLine && summary.attemptStatus !== 'IN_PROGRESS') { setError('Koneksi internet diperlukan untuk memulai attempt baru.'); return; }
     setError(''); setRemainingMs(null); autoSubmitStarted.current = false; setPhase('starting');
     try {
@@ -145,8 +217,9 @@ export default function ExamPage() {
         setAttempt(response.attempt); mergeQuestions(response.questions); setAnswers({ ...response.answers, ...(local?.answers || {}) });
         setFlagged(local?.flagged || []); setCurrentIndex(Math.min(local?.currentIndex || 0, response.attempt.questionCount - 1)); setRevision(Math.max(response.attempt.revision, local?.revision || 0));
       } else {
+        if (local?.attemptId) await deleteLocalAttempt(local.attemptId);
         response = await getExamApi().startExam(session.token, examId, examToken || undefined);
-        setAttempt(response.attempt); mergeQuestions(response.initialQuestions); setAnswers({}); setCurrentIndex(0); setRevision(response.attempt.revision);
+        setAttempt(response.attempt); mergeQuestions(response.initialQuestions); setAnswers({}); setFlagged([]); setCurrentIndex(0); setRevision(response.attempt.revision);
       }
       const activeAttempt = response.attempt;
       const expiresAtMs = new Date(activeAttempt.expiresAt).getTime();
@@ -246,6 +319,7 @@ export default function ExamPage() {
   }, [remainingMs, phase, attempt, finalize]);
 
   const saveLabel = saveStatus === 'synced' ? 'Semua jawaban tersimpan' : saveStatus === 'syncing' ? 'Menyimpan jawaban...' : saveStatus === 'offline' ? 'Offline • tersimpan sementara' : saveStatus === 'local-only' ? 'Tersimpan di perangkat' : 'Sinkronisasi tertunda';
+  const focusGuardModal = <Modal open={focusWarningOpen} onClose={() => undefined} title="Kembali ke ujian" size="small"><div className="focus-warning"><AlertTriangle size={28}/><p>Aplikasi ujian sempat tidak aktif. Selama ujian, tetap berada di SainsMasemba sampai jawaban dikumpulkan.</p><small>Perpindahan terdeteksi: {focusViolationCount} kali.</small><button className="button primary full" onClick={() => { setFocusWarningOpen(false); requestExamFullscreen(); }}>Lanjutkan ujian</button></div></Modal>;
 
   if (phase === 'loading') return <AuthGuard role="student"><div className="center-screen"><LoaderCircle className="spin"/><span>Memeriksa ujian...</span></div></AuthGuard>;
 
@@ -271,20 +345,23 @@ export default function ExamPage() {
 
   if (phase === 'submitted') return <AuthGuard role="student"><StudentShell hideNav><div className="submitted-page"><div className="success-ring"><CheckCircle2 size={46}/></div><span className="eyebrow">BERHASIL DIKUMPULKAN</span><h1>Jawaban Anda sudah diterima.</h1><p>Attempt <code>{attempt?.attemptId}</code> telah ditutup dan backup lokal dihapus setelah server memberikan acknowledgement.</p>{result?.visible ? <div className="final-score"><strong>{result.score}</strong><span>Nilai</span><div><span>{result.correctCount} benar</span><span>{result.wrongCount} salah</span><span>{result.blankCount} kosong</span></div></div> : <div className="notice neutral">Nilai belum ditampilkan sesuai pengaturan ujian.</div>}<button className="button primary" onClick={() => router.replace('/student')}>Kembali ke beranda</button></div></StudentShell></AuthGuard>;
 
-  if (phase === 'review' || phase === 'submitting') return <AuthGuard role="student"><StudentShell hideNav><div className="review-page"><button className="text-button" disabled={phase === 'submitting'} onClick={() => setPhase('exam')}><ArrowLeft size={18}/>Kembali ke soal</button><span className="eyebrow">REVIEW</span><h1>Periksa sebelum mengirim</h1><p>Setelah berhasil dikumpulkan, jawaban tidak dapat diubah kembali.</p><div className="review-stats"><div><strong>{answeredCount}</strong><span>Terjawab</span></div><div><strong>{Math.max(0, totalQuestions - answeredCount)}</strong><span>Belum dijawab</span></div><div><strong>{flagged.length}</strong><span>Ragu-ragu</span></div></div>{error && <div className="notice danger">{error}</div>}<div className="number-grid review-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''}`} onClick={() => { moveTo(idx); setPhase('exam'); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button primary full" disabled={phase === 'submitting' || !online} onClick={() => finalize(false)}>{phase === 'submitting' ? <><LoaderCircle className="spin" size={19}/>Mengirim jawaban...</> : <><Send size={19}/>Kirim jawaban</>}</button>{!online && <div className="notice warning"><CloudOff size={18}/>Sambungkan internet untuk final submit. Jawaban tetap tersimpan sementara.</div>}</div></StudentShell></AuthGuard>;
+  if (phase === 'review' || phase === 'submitting') return <AuthGuard role="student"><StudentShell hideNav><div className="review-page exam-protected"><button className="text-button" disabled={phase === 'submitting'} onClick={() => setPhase('exam')}><ArrowLeft size={18}/>Kembali ke soal</button><span className="eyebrow">REVIEW</span><h1>Periksa sebelum mengirim</h1><p>Setelah berhasil dikumpulkan, jawaban tidak dapat diubah kembali.</p><div className="review-stats"><div><strong>{answeredCount}</strong><span>Terjawab</span></div><div><strong>{Math.max(0, totalQuestions - answeredCount)}</strong><span>Belum dijawab</span></div><div><strong>{flagged.length}</strong><span>Ragu-ragu</span></div></div>{error && <div className="notice danger">{error}</div>}<div className="number-grid review-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''}`} onClick={() => { moveTo(idx); setPhase('exam'); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button primary full" disabled={phase === 'submitting' || !online} onClick={() => finalize(false)}>{phase === 'submitting' ? <><LoaderCircle className="spin" size={19}/>Mengirim jawaban...</> : <><Send size={19}/>Kirim jawaban</>}</button>{!online && <div className="notice warning"><CloudOff size={18}/>Sambungkan internet untuk final submit. Jawaban tetap tersimpan sementara.</div>}</div>{focusGuardModal}</StudentShell></AuthGuard>;
 
   return <AuthGuard role="student"><StudentShell hideNav>
-    <div className="exam-screen">
+    <div className={`exam-screen exam-protected font-${fontSize}`}>
       <header className="exam-topbar"><div><button className="icon-button" onClick={() => setPhase('review')} aria-label="Review ujian"><Grid3X3 size={20}/></button><div><strong>{summary.title}</strong><span>Soal {currentIndex + 1} dari {totalQuestions}</span></div></div><div className={remainingMs !== null && remainingMs < 5 * 60_000 ? 'timer danger' : 'timer'}><Clock3 size={18}/><strong>{remainingMs === null ? '--:--' : formatCountdown(Math.max(0, remainingMs))}</strong></div></header>
       <div className={`sync-strip ${saveStatus}`} >{saveStatus === 'syncing' ? <CloudUpload className="spin-soft" size={15}/> : saveStatus === 'offline' ? <CloudOff size={15}/> : <Check size={15}/>}<span>{saveLabel}{lastSyncAt && saveStatus === 'synced' ? ` • ${new Date(lastSyncAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}</span></div>
       {storageWarning && <div className="exam-storage-warning"><AlertTriangle size={15}/>{storageWarning}</div>}
+      {securityNotice && <button type="button" className="exam-security-notice" onClick={() => setSecurityNotice('')}><ShieldCheck size={15}/>{securityNotice}<span>×</span></button>}
+      <div className="exam-reading-toolbar"><span className="toolbar-label">Ukuran teks</span><div className="font-size-controls" aria-label="Ukuran teks soal"><button type="button" className={fontSize === 'small' ? 'active size-small' : 'size-small'} aria-label="Ukuran huruf kecil" aria-pressed={fontSize === 'small'} onClick={() => applyFontSize('small')}>A</button><button type="button" className={fontSize === 'medium' ? 'active size-medium' : 'size-medium'} aria-label="Ukuran huruf sedang" aria-pressed={fontSize === 'medium'} onClick={() => applyFontSize('medium')}>A</button><button type="button" className={fontSize === 'large' ? 'active size-large' : 'size-large'} aria-label="Ukuran huruf besar" aria-pressed={fontSize === 'large'} onClick={() => applyFontSize('large')}>A</button></div><span className="focus-counter"><ShieldCheck size={14}/>Mode fokus</span></div>
       <main className="question-area">
         <div className="question-progress"><div style={{ width: `${((currentIndex + 1) / Math.max(1, totalQuestions)) * 100}%` }}/></div>
         {!currentQuestion ? <div className="question-loading"><LoaderCircle className="spin"/><strong>Memuat soal berikutnya...</strong><small>Prefetch sedang menyiapkan batch soal.</small></div> : <>
           <div className="question-heading"><div><span className="question-number">{String(currentIndex + 1).padStart(2, '0')}</span><span className="question-tag">{currentQuestion.tag || summary.subject}</span></div><button className={flagged.includes(currentQuestion.questionId) ? 'flag-button active' : 'flag-button'} onClick={toggleFlag}><Flag size={17}/>{flagged.includes(currentQuestion.questionId) ? 'Ditandai' : 'Ragu-ragu'}</button></div>
-          <article className="question-card"><MathHtml html={currentQuestion.questionHtml || currentQuestion.text} className="question-text reading-content"/>{currentQuestion.imageUrl && <img className="question-image" src={currentQuestion.imageUrl} alt="Ilustrasi soal"/>}
-            {currentQuestion.questionType === 'TRUE_FALSE' ? <div className="true-false-stack">{currentQuestion.options.map((option, idx) => { const parts = String(answers[currentQuestion.questionId] || '').split(','); const selected = parts[idx] || ''; return <div className="true-false-item" key={currentQuestion.questionId + '-' + option.key}><div className="question-preview-option"><strong>{idx + 1}</strong><MathHtml html={option.label} className="reading-content"/></div><div className="true-false-controls"><button type="button" className={selected === 'B' ? 'button primary' : 'button secondary'} onClick={() => chooseTrueFalse(currentQuestion, idx, 'B')}>Benar</button><button type="button" className={selected === 'S' ? 'button primary' : 'button secondary'} onClick={() => chooseTrueFalse(currentQuestion, idx, 'S')}>Salah</button></div></div>; })}</div> : currentQuestion.questionType === 'MATCHING' ? (() => { const pairs = currentQuestion.interactionData || { left: [], right: [] }; const selectedPairs = parseMatchingAnswer(String(answers[currentQuestion.questionId] || '{}')); return <div className="matching-stack">{pairs.left.map((leftItem, idx) => <div className="matching-item" key={leftItem.id}><div className="matching-left"><strong>{idx + 1}</strong><MathHtml html={leftItem.text} className="reading-content"/></div><select className="matching-select" value={selectedPairs[leftItem.id] || ''} onChange={(e) => chooseMatching(currentQuestion, leftItem.id, e.target.value)}><option value="">Pilih pasangan</option>{pairs.right.map((rightItem, rightIndex) => <option key={rightItem.id} value={rightItem.id}>{rightIndex + 1}. {rightItem.text.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()}</option>)}</select></div>)}</div>; })() : <div className="option-list">{currentQuestion.options.map((option, idx) => { const selected = currentQuestion.questionType === 'MULTIPLE_CHOICE' ? String(answers[currentQuestion.questionId] || '').split(',').includes(option.key) : answers[currentQuestion.questionId] === option.key; return <button key={currentQuestion.questionId + '-' + option.key} className={selected ? 'option-card selected' : 'option-card'} onClick={() => chooseAnswer(currentQuestion, option.key)}><span className="option-letter">{String.fromCharCode(65 + idx)}</span><MathHtml html={option.label} className="reading-content"/><span className="option-check">{selected ? <Check size={17}/> : <Circle size={17}/>}</span></button>; })}</div>}
-            {currentQuestion.questionType === 'MULTIPLE_CHOICE' && <div className="answer-help">Pilih semua jawaban yang benar. Anda dapat memilih lebih dari satu opsi.</div>}
+          <article className="question-card"><MathHtml html={currentQuestion.questionHtml || currentQuestion.text} className="question-text reading-content" imageZoom/>{currentQuestion.imageUrl && <ZoomableImage className="question-image" src={currentQuestion.imageUrl} alt="Ilustrasi soal"/>}
+            {currentQuestion.questionType === 'SINGLE_CHOICE' && <div className="answer-mode single"><span className="answer-mode-symbol">○</span><div><strong>Pilih satu jawaban</strong><small>Ketuk satu opsi yang paling tepat.</small></div></div>}
+            {currentQuestion.questionType === 'MULTIPLE_CHOICE' && <div className="answer-mode multiple"><span className="answer-mode-symbol">☑</span><div><strong>Pilih lebih dari satu jawaban</strong><small>Centang semua opsi yang benar.</small></div></div>}
+            {currentQuestion.questionType === 'TRUE_FALSE' ? <div className="true-false-stack">{currentQuestion.options.map((option, idx) => { const parts = String(answers[currentQuestion.questionId] || '').split(','); const selected = parts[idx] || ''; return <div className="true-false-item" key={currentQuestion.questionId + '-' + option.key}><div className="question-preview-option"><strong>{idx + 1}</strong><MathHtml html={option.label} className="reading-content" imageZoom/></div><div className="true-false-controls"><button type="button" className={selected === 'B' ? 'button primary' : 'button secondary'} onClick={() => chooseTrueFalse(currentQuestion, idx, 'B')}>Benar</button><button type="button" className={selected === 'S' ? 'button primary' : 'button secondary'} onClick={() => chooseTrueFalse(currentQuestion, idx, 'S')}>Salah</button></div></div>; })}</div> : currentQuestion.questionType === 'MATCHING' ? (() => { const pairs = currentQuestion.interactionData || { left: [], right: [] }; const selectedPairs = parseMatchingAnswer(String(answers[currentQuestion.questionId] || '{}')); return <div className="matching-stack">{pairs.left.map((leftItem, idx) => <div className="matching-item" key={leftItem.id}><div className="matching-left"><strong>{idx + 1}</strong><MathHtml html={leftItem.text} className="reading-content" imageZoom/></div><select className="matching-select" value={selectedPairs[leftItem.id] || ''} onChange={(e) => chooseMatching(currentQuestion, leftItem.id, e.target.value)}><option value="">Pilih pasangan</option>{pairs.right.map((rightItem, rightIndex) => <option key={rightItem.id} value={rightItem.id}>{rightIndex + 1}. {rightItem.text.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()}</option>)}</select></div>)}</div>; })() : <div className="option-list">{currentQuestion.options.map((option, idx) => { const selected = currentQuestion.questionType === 'MULTIPLE_CHOICE' ? String(answers[currentQuestion.questionId] || '').split(',').includes(option.key) : answers[currentQuestion.questionId] === option.key; return <button key={currentQuestion.questionId + '-' + option.key} className={selected ? 'option-card selected' : 'option-card'} onClick={() => chooseAnswer(currentQuestion, option.key)}><span className="option-letter">{String.fromCharCode(65 + idx)}</span><MathHtml html={option.label} className="reading-content" imageZoom/><span className={`option-check ${currentQuestion.questionType === 'MULTIPLE_CHOICE' ? 'multiple' : 'single'}`}>{currentQuestion.questionType === 'MULTIPLE_CHOICE' ? <span className={selected ? 'check-square checked' : 'check-square'}>{selected ? <Check size={15}/> : null}</span> : selected ? <span className="radio-dot checked"><i/></span> : <span className="radio-dot"/>}</span></button>; })}</div>}
             {currentQuestion.questionType === 'MATCHING' && <div className="answer-help">Pilih pasangan yang tepat untuk setiap item di kolom kiri.</div>}
           </article>
         </>}
@@ -293,5 +370,6 @@ export default function ExamPage() {
     </div>
     <Modal open={navigatorOpen} onClose={() => setNavigatorOpen(false)} title="Daftar nomor soal" size="small"><div className="navigator-legend"><span><i className="answered"/>Terjawab</span><span><i/>Belum</span><span><i className="flagged"/>Ragu</span></div><div className="number-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''} ${idx === currentIndex ? 'current' : ''}`} onClick={() => { moveTo(idx); setNavigatorOpen(false); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button secondary full modal-review-button" onClick={() => { setNavigatorOpen(false); setPhase('review'); }}>Review & kumpulkan</button></Modal>
     <button className="floating-navigator" onClick={() => setNavigatorOpen(true)}><Grid3X3 size={20}/><span>{answeredCount}/{totalQuestions}</span></button>
+    {focusGuardModal}
   </StudentShell></AuthGuard>;
 }
