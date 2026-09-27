@@ -3,9 +3,12 @@ export type ExamStatus = 'DRAFT' | 'SCHEDULED' | 'OPEN' | 'PAUSED' | 'ENDED' | '
 export type AttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'EXPIRED';
 export type ResultVisibility = 'immediate' | 'after_exam_closed' | 'manual_publish' | 'hidden';
 export type SaveStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'local-only';
-export type QuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE';
+export type QuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MATCHING';
 export type ScoringMode = 'EXACT_MATCH' | 'PARTIAL_NO_PENALTY';
 export type QuestionStatus = 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED';
+
+export interface MatchingItem { id: string; text: string; }
+export interface MatchingInteractionData { left: MatchingItem[]; right: MatchingItem[]; }
 
 export interface User {
   userId: string;
@@ -59,6 +62,7 @@ export interface Question {
   questionType: QuestionType;
   scoringMode?: ScoringMode;
   options: QuestionOption[];
+  interactionData?: MatchingInteractionData | null;
   imageUrl?: string | null;
   imageFileId?: string | null;
   difficulty?: string;
@@ -106,6 +110,7 @@ export interface QuestionRecord {
   optionC: string;
   optionD: string;
   optionE?: string;
+  interactionData?: MatchingInteractionData | null;
   correctAnswer?: string;
   correctAnswers?: string;
   score?: number;
@@ -164,6 +169,7 @@ export interface AdminQuestionInput {
   optionC: string;
   optionD: string;
   optionE?: string;
+  interactionData?: MatchingInteractionData | null;
   correctAnswers: string;
   score?: number;
   maxScore: number;

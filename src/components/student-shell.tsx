@@ -1,40 +1,28 @@
 'use client';
-
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Bell, ClipboardCheck, History, Home, LogOut, UserRound } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import type { ReactNode } from 'react';
+import { BookText, House, LogOut, Settings2, Trophy } from 'lucide-react';
 import { useSession } from '@/contexts/session-context';
-import { Logo } from './logo';
 
-const nav = [
-  { href: '/student', label: 'Beranda', icon: Home },
-  { href: '/student/history', label: 'Riwayat', icon: History },
-  { href: '/student/profile', label: 'Profil', icon: UserRound },
-];
+interface StudentShellProps { children: ReactNode; hideNav?: boolean; }
 
-export function StudentShell({ children, hideNav = false }: { children: React.ReactNode; hideNav?: boolean }) {
+export function StudentShell({ children, hideNav = false }: StudentShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { session, logout } = useSession();
+  const navItems = [
+    { href: '/student', label: 'Beranda', icon: House },
+    { href: '/student/history', label: 'Riwayat', icon: BookText },
+    { href: '/student/results', label: 'Hasil', icon: Trophy },
+    { href: '/student/developers', label: 'Pengembang', icon: Settings2 },
+  ];
+
   return (
-    <div className="student-app">
-      <header className="mobile-header">
-        <Link href="/student" className="brand-mini"><Logo compact /><span>SainsMasemba</span></Link>
-        <div className="header-actions">
-          <button className="icon-button" aria-label="Notifikasi"><Bell size={20} /></button>
-          <button className="avatar-button" aria-label="Profil">{session?.user.name?.charAt(0) || 'S'}</button>
-        </div>
-      </header>
-      <main className={hideNav ? 'student-content exam-content' : 'student-content'}>{children}</main>
-      {!hideNav && (
-        <nav className="bottom-nav" aria-label="Navigasi utama">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            const active = item.href === '/student' ? pathname === item.href : pathname.startsWith(item.href);
-            return <Link key={item.href} href={item.href} className={active ? 'bottom-nav-item active' : 'bottom-nav-item'}><Icon size={21}/><span>{item.label}</span></Link>;
-          })}
-          <button className="bottom-nav-item" onClick={() => logout()}><LogOut size={21}/><span>Keluar</span></button>
-        </nav>
-      )}
+    <div className="student-layout">
+      <header className="student-topbar"><div><strong>{session?.user.name}</strong><span>{session?.user.className}</span></div><button className="icon-button" onClick={() => { logout(); router.replace('/login'); }} aria-label="Keluar"><LogOut size={18} /></button></header>
+      <main className="student-content">{children}</main>
+      {!hideNav && <nav className="student-nav">{navItems.map((item) => { const Icon = item.icon; const active = pathname === item.href || pathname.startsWith(`${item.href}/`); return <Link key={item.href} href={item.href} className={active ? 'active' : ''}><Icon size={18} /><span>{item.label}</span></Link>; })}</nav>}
     </div>
   );
 }
