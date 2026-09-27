@@ -36,7 +36,7 @@ export default function ExamPage() {
   const [examToken, setExamToken] = useState('');
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const [error, setError] = useState('');
-  const [remainingMs, setRemainingMs] = useState(0);
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
   const [result, setResult] = useState<ExamResult | null>(null);
   const syncInFlight = useRef(false);
   const prefetchInFlight = useRef(false);
@@ -136,7 +136,7 @@ export default function ExamPage() {
   const begin = async () => {
     if (!session || !summary) return;
     if (!navigator.onLine && summary.attemptStatus !== 'IN_PROGRESS') { setError('Koneksi internet diperlukan untuk memulai attempt baru.'); return; }
-    setError(''); setPhase('starting');
+    setError(''); setRemainingMs(null); autoSubmitStarted.current = false; setPhase('starting');
     try {
       let response;
       const local = await findLocalAttemptByExam(examId);
@@ -145,9 +145,14 @@ export default function ExamPage() {
         setAttempt(response.attempt); mergeQuestions(response.questions); setAnswers({ ...response.answers, ...(local?.answers || {}) });
         setFlagged(local?.flagged || []); setCurrentIndex(Math.min(local?.currentIndex || 0, response.attempt.questionCount - 1)); setRevision(Math.max(response.attempt.revision, local?.revision || 0));
       } else {
-        const started = await getExamApi().startExam(session.token, examId, examToken || undefined);
-        setAttempt(started.attempt); mergeQuestions(started.initialQuestions); setAnswers({}); setCurrentIndex(0); setRevision(started.attempt.revision);
+        response = await getExamApi().startExam(session.token, examId, examToken || undefined);
+        setAttempt(response.attempt); mergeQuestions(response.initialQuestions); setAnswers({}); setCurrentIndex(0); setRevision(response.attempt.revision);
       }
+      const activeAttempt = response.attempt;
+      const expiresAtMs = new Date(activeAttempt.expiresAt).getTime();
+      const serverTimeMs = new Date(activeAttempt.serverTime).getTime();
+      const initialRemaining = Number.isFinite(expiresAtMs) && Number.isFinite(serverTimeMs) ? expiresAtMs - serverTimeMs : null;
+      setRemainingMs(initialRemaining === null ? null : Math.max(0, initialRemaining));
       setSaveStatus('synced'); setPhase('exam');
     } catch (err) { setError(err instanceof Error ? err.message : 'Gagal memulai ujian.'); setPhase('preflight'); }
   };
@@ -164,7 +169,14 @@ export default function ExamPage() {
 
   useEffect(() => {
     if (!attempt || (phase !== 'exam' && phase !== 'review')) return;
-    const update = () => setRemainingMs(new Date(attempt.expiresAt).getTime() - Date.now());
+    const expiresAtMs = new Date(attempt.expiresAt).getTime();
+    const serverTimeMs = new Date(attempt.serverTime).getTime();
+    const clientAnchorMs = Date.now();
+    const serverOffsetMs = Number.isFinite(serverTimeMs) ? serverTimeMs - clientAnchorMs : 0;
+    const update = () => {
+      if (!Number.isFinite(expiresAtMs)) { setRemainingMs(null); return; }
+      setRemainingMs(expiresAtMs - (Date.now() + serverOffsetMs));
+    };
     update(); const id = window.setInterval(update, 1000); return () => window.clearInterval(id);
   }, [attempt, phase]);
 
@@ -227,7 +239,7 @@ export default function ExamPage() {
   }, [session, attempt, phase, syncAnswers, revision, answers]);
 
   useEffect(() => {
-    if ((phase === 'exam' || phase === 'review') && remainingMs <= 0 && attempt && !autoSubmitStarted.current) {
+    if ((phase === 'exam' || phase === 'review') && remainingMs !== null && remainingMs <= 0 && attempt && !autoSubmitStarted.current) {
       autoSubmitStarted.current = true;
       finalize(true);
     }
@@ -263,7 +275,7 @@ export default function ExamPage() {
 
   return <AuthGuard role="student"><StudentShell hideNav>
     <div className="exam-screen">
-      <header className="exam-topbar"><div><button className="icon-button" onClick={() => setPhase('review')} aria-label="Review ujian"><Grid3X3 size={20}/></button><div><strong>{summary.title}</strong><span>Soal {currentIndex + 1} dari {totalQuestions}</span></div></div><div className={remainingMs < 5 * 60_000 ? 'timer danger' : 'timer'}><Clock3 size={18}/><strong>{formatCountdown(remainingMs)}</strong></div></header>
+      <header className="exam-topbar"><div><button className="icon-button" onClick={() => setPhase('review')} aria-label="Review ujian"><Grid3X3 size={20}/></button><div><strong>{summary.title}</strong><span>Soal {currentIndex + 1} dari {totalQuestions}</span></div></div><div className={remainingMs !== null && remainingMs < 5 * 60_000 ? 'timer danger' : 'timer'}><Clock3 size={18}/><strong>{remainingMs === null ? '--:--' : formatCountdown(Math.max(0, remainingMs))}</strong></div></header>
       <div className={`sync-strip ${saveStatus}`} >{saveStatus === 'syncing' ? <CloudUpload className="spin-soft" size={15}/> : saveStatus === 'offline' ? <CloudOff size={15}/> : <Check size={15}/>}<span>{saveLabel}{lastSyncAt && saveStatus === 'synced' ? ` • ${new Date(lastSyncAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}</span></div>
       {storageWarning && <div className="exam-storage-warning"><AlertTriangle size={15}/>{storageWarning}</div>}
       <main className="question-area">
