@@ -1,7 +1,8 @@
 'use client';
 
 import katex from 'katex';
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Minus, Plus, RotateCcw, X } from 'lucide-react';
 
 const DISPLAY_PLACEHOLDER_PREFIX = '%%SAINS_MASEMBA_KATEX_BLOCK_';
@@ -206,24 +207,91 @@ type LightboxState = { src: string; alt: string } | null;
 
 function ImageLightbox({ image, onClose }: { image: NonNullable<LightboxState>; onClose: () => void }) {
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
+
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === '+' || event.key === '=') setZoom((value) => Math.min(4, Number((value + .25).toFixed(2))));
+      if (event.key === '-') setZoom((value) => Math.max(1, Number((value - .25).toFixed(2))));
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [onClose]);
 
-  return <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Pratinjau gambar soal" onClick={onClose}>
+  useEffect(() => {
+    if (zoom <= 1) setPan({ x: 0, y: 0 });
+  }, [zoom]);
+
+  const setSafeZoom = (next: number) => {
+    const value = Math.min(4, Math.max(1, Number(next.toFixed(2))));
+    setZoom(value);
+    if (value === 1) setPan({ x: 0, y: 0 });
+  };
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLImageElement>) => {
+    if (zoom <= 1) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: pan.x,
+      originY: pan.y,
+    };
+    setDragging(true);
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    setPan({
+      x: drag.originX + (event.clientX - drag.startX),
+      y: drag.originY + (event.clientY - drag.startY),
+    });
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLImageElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  const dialog = <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Pratinjau gambar soal" onClick={onClose}>
     <div className="image-lightbox-toolbar" onClick={(event) => event.stopPropagation()}>
-      <button type="button" onClick={() => setZoom((value) => Math.max(.6, value - .2))} aria-label="Perkecil gambar"><Minus size={19}/></button>
-      <button type="button" onClick={() => setZoom(1)} aria-label="Kembalikan ukuran gambar"><RotateCcw size={18}/></button>
-      <button type="button" onClick={() => setZoom((value) => Math.min(3, value + .2))} aria-label="Perbesar gambar"><Plus size={19}/></button>
+      <button type="button" onClick={() => setSafeZoom(zoom - .25)} disabled={zoom <= 1} aria-label="Perkecil gambar" title="Zoom out"><Minus size={19}/></button>
+      <button type="button" onClick={() => { setSafeZoom(1); setPan({ x: 0, y: 0 }); }} aria-label="Kembalikan ukuran gambar" title="Ukuran awal"><RotateCcw size={18}/></button>
+      <button type="button" onClick={() => setSafeZoom(zoom + .25)} disabled={zoom >= 4} aria-label="Perbesar gambar" title="Zoom in"><Plus size={19}/></button>
       <span>{Math.round(zoom * 100)}%</span>
-      <button type="button" className="close" onClick={onClose} aria-label="Tutup gambar"><X size={20}/></button>
+      <button type="button" className="close" onClick={onClose} aria-label="Tutup gambar" title="Tutup"><X size={21}/></button>
     </div>
-    <div className="image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
-      <img src={image.src} alt={image.alt} draggable={false} style={{ transform: `scale(${zoom})` }}/>
+    <div className={`image-lightbox-stage${zoom > 1 ? ' pannable' : ''}${dragging ? ' dragging' : ''}`} onClick={(event) => event.stopPropagation()}>
+      <img
+        src={image.src}
+        alt={image.alt}
+        draggable={false}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onDoubleClick={() => zoom > 1 ? setSafeZoom(1) : setSafeZoom(2)}
+        style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
+      />
+      {zoom > 1 && <div className="image-lightbox-hint">Geser gambar untuk melihat bagian lain</div>}
     </div>
   </div>;
+
+  return typeof document !== 'undefined' ? createPortal(dialog, document.body) : null;
 }
 
 export function ZoomableImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
