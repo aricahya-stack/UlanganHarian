@@ -1,34 +1,24 @@
-# SainsMasemba PATCH v2.1.6 — Fix Timer / Auto Submit
+# SainsMasemba v2.1.7 — Fix Google Drive Image
 
-## Masalah
-Saat siswa menekan **Mulai Ujian**, halaman dapat langsung menjalankan final submit.
+Masalah: gambar yang berhasil diupload ke Google Drive tampil sebagai broken image di editor/ujian.
 
-Penyebabnya adalah race condition di frontend:
-- nilai awal `remainingMs` sebelumnya `0`;
-- setelah `phase` berubah menjadi `exam`, effect auto-submit melihat `remainingMs <= 0`;
-- effect timer baru menjadwalkan pembaruan waktu sesudah render tersebut;
-- akibatnya `finalize(true)` dapat terpanggil sebelum countdown terinisialisasi.
+Penyebab: URL lama `https://drive.google.com/uc?export=view&id=...` tidak lagi reliabel untuk image embedding.
 
-## Perbaikan
-- `remainingMs` memakai `null` selama timer belum terinisialisasi.
-- Auto-submit hanya boleh berjalan setelah timer mempunyai nilai valid.
-- Timer diinisialisasi dari `expiresAt` dan `serverTime` milik attempt.
-- Countdown memakai offset waktu server agar tidak langsung bergantung pada jam perangkat.
-- `autoSubmitStarted` di-reset ketika memulai/meresume ujian.
+Perbaikan:
+- `drivePublicUrl_()` sekarang memakai `https://drive.google.com/thumbnail?id=FILE_ID&sz=w1600`.
+- HTML lama yang masih menyimpan URL `/uc?export=view&id=...` dinormalisasi otomatis oleh `MathHtml` saat dirender.
+- URL share Drive model `/file/d/FILE_ID/view` juga dinormalisasi.
+- Upload baru tidak lagi diam-diam dianggap berhasil jika Google Workspace memblokir public sharing.
 
 ## File yang diganti
-`src/app/student/exam/[examId]/page.tsx`
+- `apps-script/Utils.gs`
+- `apps-script/Drive.gs`
+- `src/components/math-html.tsx`
 
-## Instalasi
-1. Replace file sesuai path di atas.
-2. Commit dan push ke GitHub.
-3. Tunggu Vercel selesai redeploy.
+## Setelah replace
+1. Apps Script: Save.
+2. Deploy > Manage deployments > Edit > New version > Deploy.
+3. Frontend: commit + push ke GitHub/Vercel.
+4. Hard refresh browser / tutup-buka PWA agar bundle frontend baru terpakai.
 
-Patch ini **frontend only**:
-- tidak perlu `setupSainsMasemba()`;
-- tidak perlu `repairSainsMasemba()`;
-- tidak perlu deploy ulang Apps Script.
-
-## Penting untuk attempt yang sudah terlanjur SUBMITTED
-Patch tidak membuka kembali attempt yang sudah tersimpan sebagai `SUBMITTED`.
-Untuk pengujian ulang, gunakan akun/ujian baru, atau hapus data uji terkait secara hati-hati dari `SUBMISSIONS` dan `ATTEMPTS` untuk pasangan siswa + ujian tersebut.
+Tidak perlu menjalankan `setupSainsMasemba()` atau `repairSainsMasemba()` karena tidak ada perubahan schema.

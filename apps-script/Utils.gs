@@ -17,4 +17,4 @@ function canManageExam_(ctx,exam){return !!exam&&(String(ctx.user.role)==='super
 function assertManageExam_(ctx,exam){if(!canManageExam_(ctx,exam))throw apiError_('Ujian tidak berada dalam kewenangan akun ini.','FORBIDDEN');}
 function visibleExamsFor_(ctx){const all=rows_('EXAMS');return String(ctx.user.role)==='teacher'?all.filter(e=>String(e.ownerId)===String(ctx.user.userId)):all;}
 function audit_(userId,action,targetId,detail){try{appendObject_('AUDIT_LOG',{logId:uid_('LOG'),timestamp:nowIso_(),userId:userId||'',action,targetId:targetId||'',detailJson:JSON.stringify(detail||{})})}catch(_){}}
-function drivePublicUrl_(fileId){return fileId?'https://drive.google.com/uc?export=view&id='+encodeURIComponent(fileId):'';}
+function drivePublicUrl_(fileId){return fileId?'https://drive.google.com/thumbnail?id='+encodeURIComponent(fileId)+'&sz=w1600':'';}

@@ -19,15 +19,38 @@ const TAG_ATTRIBUTES: Record<string, Set<string>> = {
   col: new Set(['span']),
 };
 
+function normalizeGoogleDriveImageUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  try {
+    const url = new URL(trimmed, window.location.origin);
+    const host = url.hostname.toLowerCase();
+    if (host === 'drive.google.com' || host === 'drive.usercontent.google.com') {
+      let fileId = url.searchParams.get('id') || '';
+      if (!fileId) {
+        const match = url.pathname.match(/\/file\/d\/([^/]+)/i);
+        fileId = match?.[1] || '';
+      }
+      if (fileId) {
+        return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1600`;
+      }
+    }
+  } catch {}
+
+  return trimmed;
+}
+
 function safeUrl(value: string, type: 'href' | 'src') {
   const trimmed = value.trim();
   if (!trimmed) return '';
   if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed;
   if (type === 'src' && /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(trimmed)) return trimmed;
+  const normalized = type === 'src' ? normalizeGoogleDriveImageUrl(trimmed) : trimmed;
   try {
-    const url = new URL(trimmed, window.location.origin);
-    if (type === 'href' && ['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol)) return trimmed;
-    if (type === 'src' && ['http:', 'https:'].includes(url.protocol)) return trimmed;
+    const url = new URL(normalized, window.location.origin);
+    if (type === 'href' && ['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol)) return normalized;
+    if (type === 'src' && ['http:', 'https:'].includes(url.protocol)) return normalized;
   } catch {}
   return '';
 }
