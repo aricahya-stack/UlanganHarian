@@ -64,5 +64,5 @@ export const demoQuestions: QuestionRecord[] = baseQuestions.map((q, index) => (
   questionText: q[0], questionHtml: index === 4 ? `<p>Jika massa benda <strong>2 kg</strong> dan percepatannya <span class="latex-token">\(3\,m/s^2\)</span>, gaya resultannya adalah ...</p>` : `<p>${q[0]}</p>`,
   explanation: `<p>Jawaban yang benar adalah <strong>${q[5]}</strong>.</p>`, optionA: `<p>${q[1]}</p>`, optionB: `<p>${q[2]}</p>`, optionC: `<p>${q[3]}</p>`, optionD: `<p>${q[4]}</p>`, optionE: '',
   correctAnswer: q[5], correctAnswers: q[5], score: 5, maxScore: 5, questionType: 'SINGLE_CHOICE', scoringMode: 'EXACT_MATCH', difficulty: index < 7 ? 'Mudah' : index < 14 ? 'Sedang' : 'Sulit',
-  tag: 'Fisika Dasar', status: 'PUBLISHED'
+  tag: 'Fisika Dasar', category: 'Ulangan Harian', packageName: 'Ulangan Harian Fisika', status: 'PUBLISHED'
 }));

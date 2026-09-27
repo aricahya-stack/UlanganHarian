@@ -2,7 +2,7 @@ const SM = Object.freeze({
   SHEETS: {
     USERS: ['userId','name','email','phone','className','subject','username','passwordHash','passwordSalt','role','status','createdAt','updatedAt'],
     EXAMS: ['examId','ownerId','title','subject','className','descriptionHtml','startTime','endTime','durationMinutes','questionCount','status','randomizeQuestion','randomizeOption','resultVisibility','token','attemptPolicy','instructions','rulesHtml','createdAt','updatedAt'],
-    QUESTIONS: ['questionId','examId','authorId','topicCode','blueprintCode','code','stimulusOrder','questionText','questionHtml','explanation','optionA','optionB','optionC','optionD','optionE','interactionDataJson','imageFileId','questionType','scoringMode','maxScore','difficulty','tag','status','createdAt','updatedAt'],
+    QUESTIONS: ['questionId','examId','authorId','topicCode','blueprintCode','code','stimulusOrder','questionText','questionHtml','explanation','optionA','optionB','optionC','optionD','optionE','interactionDataJson','imageFileId','questionType','scoringMode','maxScore','difficulty','tag','category','packageName','status','createdAt','updatedAt'],
     EXAM_QUESTIONS: ['examId','questionId','orderNo'],
     ANSWER_KEYS: ['questionId','correctAnswer','correctAnswers','score','maxScore'],
     ATTEMPTS: ['attemptId','examId','studentId','startedAt','expiresAt','lastSyncAt','revision','status','submittedAt','questionOrderJson','optionOrderJson','answersJson'],

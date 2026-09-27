@@ -27,7 +27,9 @@ const checks = [
   [editor.includes('insertLatex') && editor.includes('isSourceMode') && editor.includes('Table2'), 'WYSIWYG/LaTeX/source HTML/tabel belum lengkap.'],
   [bank.includes('MULTIPLE_CHOICE') && bank.includes('TRUE_FALSE') && bank.includes('question-import-template.xlsx'), 'Bank soal full parity belum lengkap.'],
   [manager.includes('Pemetaan soal') && manager.includes('saveExamQuestions'), 'UI pemetaan soal ujian belum lengkap.'],
+  [admin.includes('listQuestionPackages_') && admin.includes('applyQuestionPackage_') && config.includes('packageName') && config.includes('category'), 'Kategori/Paket Soal backend belum lengkap.'],
+  [bank.includes('kategori_soal') && bank.includes('nama_tryout') && manager.includes('listQuestionPackages') && manager.includes('applyQuestionPackage'), 'Import paket soal atau pemilihan paket saat jadwal belum lengkap.'],
   [Boolean(pkg.dependencies?.katex) && Boolean(pkg.dependencies?.xlsx), 'Dependency KaTeX/XLSX belum ada.'],
 ];
 for (const [ok,message] of checks) if (!ok) { console.error(message); process.exit(1); }
-console.log(`OK: ${required.length} file inti tersedia. 3 role, WYSIWYG/LaTeX, Excel, reusable Bank Soal, pemetaan ujian, dan Apps Script backend terdeteksi.`);
+console.log(`OK: ${required.length} file inti tersedia. 3 role, WYSIWYG/LaTeX, Excel, reusable Bank Soal, kategori/paket soal, pemilihan paket saat jadwal, pemetaan ujian, dan Apps Script backend terdeteksi.`);

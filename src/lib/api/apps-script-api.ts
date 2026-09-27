@@ -14,6 +14,7 @@ import type {
   MonitoringRow,
   Question,
   QuestionRecord,
+  QuestionPackageSummary,
   ResumeAttemptResponse,
   SaveAnswersResponse,
   Session,
@@ -78,6 +79,8 @@ export class GoogleAppsScriptExamApi implements ExamApi {
   duplicateExam(token: string, examId: string) { return this.request<ExamRecord>('duplicateExam', { token, examId }); }
   getExamQuestionIds(token: string, examId: string) { return this.request<string[]>('getExamQuestionIds', { token, examId }); }
   saveExamQuestions(token: string, examId: string, questionIds: string[]) { return this.request<{ questionCount: number }>('saveExamQuestions', { token, examId, questionIds }); }
+  listQuestionPackages(token: string) { return this.request<QuestionPackageSummary[]>('listQuestionPackages', { token }); }
+  applyQuestionPackage(token: string, examId: string, category: string, packageName: string) { return this.request<{ questionCount: number }>('applyQuestionPackage', { token, examId, category, packageName }); }
   listQuestions(token: string, examId?: string) { return this.request<QuestionRecord[]>('listQuestions', { token, examId }); }
   saveQuestion(token: string, input: AdminQuestionInput) { return this.request<QuestionRecord>('saveQuestion', { token, input }); }
   deleteQuestion(token: string, questionId: string) { return this.request<void>('deleteQuestion', { token, questionId }); }

@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpenCheck, Copy, Edit3, Plus, Search, Trash2 } from 'lucide-react';
 import { Badge, Modal, PageHeader, Skeleton } from '@/components/ui';
 import { RichEditor } from '@/components/rich-editor';
 import { MathHtml } from '@/components/math-html';
 import { useSession } from '@/contexts/session-context';
-import { getExamApi, type AdminExamInput, type ExamRecord, type QuestionRecord, type TeacherRecord } from '@/lib/api';
+import { getExamApi, type AdminExamInput, type ExamRecord, type QuestionPackageSummary, type QuestionRecord, type TeacherRecord } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 
 const emptyForm = (): AdminExamInput => ({
@@ -28,7 +28,12 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<AdminExamInput>(emptyForm());
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
   const [query, setQuery] = useState('');
+  const [packages, setPackages] = useState<QuestionPackageSummary[]>([]);
+  const [sourceMode, setSourceMode] = useState<'package' | 'manual'>('package');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedPackage, setSelectedPackage] = useState('');
 
   const [mappingOpen, setMappingOpen] = useState(false);
   const [mappingExam, setMappingExam] = useState<ExamRecord | null>(null);
@@ -40,28 +45,38 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
 
   const load = async () => {
     if (!session) return;
-    const [exams, teacherRows] = await Promise.all([
+    const [exams, teacherRows, packageRows] = await Promise.all([
       getExamApi().listExams(session.token),
       superAdmin ? getExamApi().listTeachers(session.token) : Promise.resolve([]),
+      getExamApi().listQuestionPackages(session.token),
     ]);
-    setItems(exams); setTeachers(teacherRows); setLoading(false);
+    setItems(exams); setTeachers(teacherRows); setPackages(packageRows); setLoading(false);
   };
   useEffect(() => { load(); }, [session]);
 
   const filtered = useMemo(() => items.filter((e) => `${e.title} ${e.subject} ${e.className} ${e.ownerName || ''}`.toLowerCase().includes(query.toLowerCase())), [items, query]);
   const availableBank = useMemo(() => bank.filter((q) => `${q.code || ''} ${plain(q.questionHtml || q.questionText)} ${q.tag || ''} ${q.difficulty || ''}`.toLowerCase().includes(mappingQuery.toLowerCase())), [bank, mappingQuery]);
   const selectedQuestions = useMemo(() => selected.map((id) => bank.find((q) => q.questionId === id)).filter(Boolean) as QuestionRecord[], [selected, bank]);
+  const packageCategories = useMemo(() => [...new Set(packages.map((p) => p.category || 'Tanpa Kategori'))], [packages]);
+  const filteredPackages = useMemo(() => packages.filter((p) => !selectedCategory || p.category === selectedCategory), [packages, selectedCategory]);
+  const selectedPackageInfo = useMemo(() => packages.find((p) => p.category === selectedCategory && p.packageName === selectedPackage) || packages.find((p) => p.packageName === selectedPackage), [packages, selectedCategory, selectedPackage]);
 
   const edit = (exam: ExamRecord) => {
+    setFormError('');
     setForm({ ...exam, startTime: new Date(exam.startTime).toISOString().slice(0, 16), endTime: new Date(exam.endTime).toISOString().slice(0, 16), token: exam.token || '', descriptionHtml: exam.descriptionHtml || '', rulesHtml: exam.rulesHtml || '', instructions: exam.instructions || '' });
+    setSourceMode('manual'); setSelectedCategory(''); setSelectedPackage('');
     setOpen(true);
   };
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!session) return; setSaving(true);
+  const createNew = () => { setFormError(''); setForm(emptyForm()); setSourceMode(packages.length ? 'package' : 'manual'); setSelectedCategory(packageCategories[0] || ''); setSelectedPackage(''); setOpen(true); };
+  const save = async (e: FormEvent) => {
+    e.preventDefault(); if (!session) return; setSaving(true); setFormError('');
     try {
-      await getExamApi().saveExam(session.token, { ...form, startTime: new Date(form.startTime).toISOString(), endTime: new Date(form.endTime).toISOString() });
-      setOpen(false); setForm(emptyForm()); await load();
-    } finally { setSaving(false); }
+      const saved = await getExamApi().saveExam(session.token, { ...form, startTime: new Date(form.startTime).toISOString(), endTime: new Date(form.endTime).toISOString() });
+      if (sourceMode === 'package' && selectedPackage) {
+        await getExamApi().applyQuestionPackage(session.token, saved.examId, selectedCategory, selectedPackage);
+      }
+      setOpen(false); setForm(emptyForm()); setSelectedCategory(''); setSelectedPackage(''); await load();
+    } catch (error) { setFormError(error instanceof Error ? error.message : 'Gagal menyimpan ujian.'); } finally { setSaving(false); }
   };
   const remove = async (id: string) => { if (!session || !confirm('Hapus ujian ini? Bank soal tidak ikut dihapus.')) return; await getExamApi().deleteExam(session.token, id); load(); };
   const duplicate = async (id: string) => { if (!session) return; await getExamApi().duplicateExam(session.token, id); load(); };
@@ -91,15 +106,17 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
   };
 
   return <>
-    <PageHeader eyebrow="UJIAN" title="Pengaturan ujian" description="Pengaturan ujian lengkap seperti SainsMasemba: jadwal, WYSIWYG/LaTeX, aturan, token, randomisasi, visibilitas hasil, serta pemetaan Bank Soal reusable." action={<button className="button primary" onClick={() => { setForm(emptyForm()); setOpen(true); }}><Plus size={18}/>Buat ujian</button>}/>
+    <PageHeader eyebrow="UJIAN" title="Pengaturan ujian" description="Pengaturan ujian lengkap seperti SainsMasemba: jadwal, WYSIWYG/LaTeX, aturan, token, randomisasi, visibilitas hasil, serta pemetaan Bank Soal reusable." action={<button className="button primary" onClick={createNew}><Plus size={18}/>Buat ujian</button>}/>
     <div className="toolbar"><input className="search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari ujian, mapel, kelas, atau guru..."/></div>
     {loading ? <Skeleton height={280}/> : <section className="panel"><div className="table-wrap"><table><thead><tr><th>Ujian</th>{superAdmin && <th>Pemilik</th>}<th>Kelas</th><th>Soal</th><th>Durasi</th><th>Status</th><th>Jadwal</th><th></th></tr></thead><tbody>{filtered.map((exam) => <tr key={exam.examId}><td><strong>{exam.title}</strong><small>{exam.subject}</small></td>{superAdmin && <td>{exam.ownerName || '-'}</td>}<td>{exam.className}</td><td><strong>{exam.questionCount}</strong></td><td>{exam.durationMinutes} menit</td><td><Badge tone={['ACTIVE','OPEN'].includes(exam.status) ? 'success' : exam.status === 'DRAFT' ? 'neutral' : 'primary'}>{exam.status}</Badge></td><td><small>{formatDateTime(exam.startTime)}<br/>s.d. {formatDateTime(exam.endTime)}</small></td><td><div className="row-actions"><button onClick={() => openMapping(exam)} title="Pemetaan soal"><BookOpenCheck/></button><button onClick={() => edit(exam)} title="Edit"><Edit3/></button><button onClick={() => duplicate(exam.examId)} title="Duplikat"><Copy/></button><button className="danger" onClick={() => remove(exam.examId)} title="Hapus"><Trash2/></button></div></td></tr>)}</tbody></table></div></section>}
 
     <Modal open={open} onClose={() => setOpen(false)} title={form.examId ? 'Edit pengaturan ujian' : 'Buat ujian'} size="large"><form className="form-grid" onSubmit={save}>
+      {formError && <div className="span-2 notice danger">{formError}</div>}
       {superAdmin && <label className="span-2">Guru pemilik<select value={form.ownerId || ''} onChange={(e) => setForm({ ...form, ownerId: e.target.value })} required><option value="">Pilih guru</option>{teachers.map((t) => <option key={t.userId} value={t.userId}>{t.name} • {t.subject}</option>)}</select></label>}
       <label className="span-2">Judul ujian<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}/></label>
       <label>Mata pelajaran<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}/></label><label>Kelas<input required value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })}/></label>
       <div className="span-2"><RichEditor uploadImage={uploadEditorImage} label="Deskripsi ujian" value={form.descriptionHtml || ''} onChange={(value) => setForm({ ...form, descriptionHtml: value })} placeholder="Tuliskan deskripsi ujian. Mendukung tabel, gambar, tautan, source HTML, dan LaTeX."/></div>
+      <div className="span-2 panel"><strong>Sumber soal</strong><div className="action-row"><label className="check-label"><input type="radio" name="question-source" checked={sourceMode === 'package'} onChange={() => setSourceMode('package')}/>Pilih paket soal</label><label className="check-label"><input type="radio" name="question-source" checked={sourceMode === 'manual'} onChange={() => setSourceMode('manual')}/>Pilih manual dari Bank Soal</label></div>{sourceMode === 'package' ? <div className="form-grid"><label>Kategori soal<select value={selectedCategory} onChange={(e) => { setSelectedCategory(e.target.value); setSelectedPackage(''); }}><option value="">Semua kategori</option>{packageCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label>Paket soal<select value={selectedPackage} onChange={(e) => setSelectedPackage(e.target.value)} required><option value="">Pilih paket soal</option>{filteredPackages.map((pkg) => <option key={`${pkg.category}-${pkg.packageName}`} value={pkg.packageName}>{pkg.packageName} • {pkg.publishedCount ?? pkg.questionCount}/{pkg.questionCount} siap</option>)}</select></label>{selectedPackageInfo && <div className="span-2 notice neutral"><strong>{selectedPackageInfo.packageName}</strong><br/>{selectedPackageInfo.publishedCount ?? selectedPackageInfo.questionCount} soal berstatus PUBLISHED/ACTIVE dari {selectedPackageInfo.questionCount} soal dalam paket. Saat jadwal disimpan, soal siap pakai langsung dipetakan ke ujian.</div>}</div> : <div className="notice neutral">Jadwal disimpan terlebih dahulu. Setelah itu gunakan tombol <strong>Pemetaan Soal</strong> pada daftar ujian untuk memilih soal satu per satu.</div>}</div>
       <label>Mulai<input type="datetime-local" required value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}/></label><label>Selesai<input type="datetime-local" required value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}/></label>
       <label>Durasi (menit)<input type="number" min="1" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: Number(e.target.value) })}/></label><label>Jumlah soal terpetakan<input type="number" value={form.questionCount} readOnly/><span className="answer-help">Jumlah ini mengikuti Pemetaan Soal, bukan diketik manual.</span></label>
       <label>Status<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AdminExamInput['status'] })}><option>DRAFT</option><option>SCHEDULED</option><option>OPEN</option><option>PAUSED</option><option>ENDED</option><option>ARCHIVED</option></select></label>

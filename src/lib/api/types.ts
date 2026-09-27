@@ -9,6 +9,7 @@ export type QuestionStatus = 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED';
 
 export interface MatchingItem { id: string; text: string; }
 export interface MatchingInteractionData { left: MatchingItem[]; right: MatchingItem[]; }
+export interface QuestionPackageSummary { category: string; packageName: string; questionCount: number; publishedCount?: number; subject?: string; }
 
 export interface User {
   userId: string;
@@ -121,6 +122,8 @@ export interface QuestionRecord {
   scoringMode: ScoringMode;
   difficulty: string;
   tag: string;
+  category?: string;
+  packageName?: string;
   status: QuestionStatus;
 }
 
@@ -178,6 +181,8 @@ export interface AdminQuestionInput {
   scoringMode: ScoringMode;
   difficulty: string;
   tag: string;
+  category?: string;
+  packageName?: string;
   status: QuestionStatus;
 }
 

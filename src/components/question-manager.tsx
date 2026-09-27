@@ -37,6 +37,8 @@ const empty = (examId = ''): AdminQuestionInput => ({
   score: 1,
   difficulty: 'Sedang',
   tag: '',
+  category: '',
+  packageName: '',
   status: 'DRAFT',
   questionType: 'SINGLE_CHOICE',
   scoringMode: 'EXACT_MATCH',
@@ -138,6 +140,8 @@ export function QuestionManager() {
       scoringMode: q.scoringMode || 'EXACT_MATCH',
       difficulty: q.difficulty,
       tag: q.tag,
+      category: q.category || '',
+      packageName: q.packageName || '',
       status: q.status || 'DRAFT',
     });
     setOpen(true);
@@ -203,7 +207,7 @@ export function QuestionManager() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
       if (!rows.length) { setImportSummary('File Excel tidak memiliki data soal.'); return; }
-      const headers = ['examId', 'code', 'stimulusOrder', 'questionType', 'scoringMode', 'difficulty', 'status', 'maxScore', 'tag', 'questionHtml', 'explanation', 'optionA', 'optionB', 'optionC', 'optionD', 'optionE', 'interactionData', 'correctAnswers', 'topicCode', 'blueprintCode'];
+      const headers = ['examId', 'code', 'stimulusOrder', 'questionType', 'scoringMode', 'difficulty', 'status', 'maxScore', 'tag', 'category', 'packageName', 'questionHtml', 'explanation', 'optionA', 'optionB', 'optionC', 'optionD', 'optionE', 'interactionData', 'correctAnswers', 'topicCode', 'blueprintCode'];
       const out = [headers.join(',')];
       const errors: string[] = [];
       let valid = 0;
@@ -213,8 +217,11 @@ export function QuestionManager() {
         const stimulus = String(excelValue(row, 'stimulus_html'));
         const prompt = String(excelValue(row, 'pertanyaan_html', 'questionHtml', 'questionText'));
         const questionHtml = [stimulus, prompt].filter(Boolean).join('\n');
-        const tryoutName = String(excelValue(row, 'nama_tryout')).trim().toLowerCase();
-        const targetExamId = examFilter || exams.find((exam) => exam.title.trim().toLowerCase() === tryoutName)?.examId || '';
+        const rawPackageName = String(excelValue(row, 'nama_tryout', 'packageName')).trim();
+        const targetExamId = examFilter || '';
+        const inferCategory = (name: string) => { const lower = name.toLowerCase(); if (lower.includes('ulangan harian') || /^uh\b/.test(lower)) return 'Ulangan Harian'; if (lower.includes('pts') || lower.includes('tengah semester')) return 'PTS'; if (lower.includes('pas') || lower.includes('akhir semester')) return 'PAS'; if (lower.includes('tryout') || lower.includes('try out')) return 'Tryout'; if (lower.includes('remedial')) return 'Remedial'; return 'Tanpa Kategori'; };
+        const category = String(excelValue(row, 'kategori_soal', 'category')).trim() || inferCategory(rawPackageName);
+        const packageName = rawPackageName;
         const key = String(excelValue(row, 'kunci_jawaban', 'correctAnswers')).toUpperCase().replace(/\s+/g, '');
         const a = String(excelValue(row, 'opsi_a', 'optionA'));
         const b = String(excelValue(row, 'opsi_b', 'optionB'));
@@ -257,6 +264,8 @@ export function QuestionManager() {
           normalizeStatus(excelValue(row, 'status')),
           Number(excelValue(row, 'bobot', 'maxScore', 'score') || 1),
           excelValue(row, 'topik', 'tag'),
+          category,
+          packageName,
           questionHtml,
           excelValue(row, 'pembahasan_html', 'explanation'),
           type === 'MATCHING' ? '' : a,
@@ -314,6 +323,7 @@ export function QuestionManager() {
     <Modal open={open} onClose={() => setOpen(false)} title={form.questionId ? 'Edit soal' : 'Tambah soal'} size="large"><form className="form-grid" onSubmit={save}>
       <label>Tambahkan langsung ke ujian (opsional)<select value={form.examId || ''} onChange={e => setForm({ ...form, examId: e.target.value || undefined })}><option value="">Simpan ke bank soal saja</option>{exams.map(e => <option key={e.examId} value={e.examId}>{e.title}</option>)}</select></label><label>Kode soal<input value={form.code || ''} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="FIS-001" /></label>
       <label>Jenis soal<select value={form.questionType} onChange={e => setType(e.target.value as QuestionType)}><option value="SINGLE_CHOICE">Pilihan ganda biasa</option><option value="MULTIPLE_CHOICE">Pilihan ganda kompleks</option><option value="TRUE_FALSE">Benar atau salah</option><option value="MATCHING">Menjodohkan</option></select></label><label>Sistem penilaian<select value={form.scoringMode} onChange={e => setForm({ ...form, scoringMode: e.target.value as ScoringMode })}><option value="EXACT_MATCH">Exact match</option><option value="PARTIAL_NO_PENALTY">Parsial tanpa penalti</option></select></label>
+      <label>Kategori soal<input value={form.category || ''} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Ulangan Harian / PTS / PAS / Tryout" /></label><label>Nama paket soal<input value={form.packageName || ''} onChange={e => setForm({ ...form, packageName: e.target.value })} placeholder="Soal Ulangan Harian 2" /></label>
       <label>Kesulitan<select value={form.difficulty} onChange={e => setForm({ ...form, difficulty: e.target.value })}><option>Mudah</option><option>Sedang</option><option>Sulit</option></select></label><label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as QuestionStatus })}><option>DRAFT</option><option>REVIEW</option><option>PUBLISHED</option><option>ARCHIVED</option></select></label>
       <label>Urutan / stimulus<input type="number" min="1" value={form.stimulusOrder || 1} onChange={e => setForm({ ...form, stimulusOrder: Number(e.target.value) })} /></label><label>Bobot soal<input type="number" min="0.1" step="0.1" value={form.maxScore} onChange={e => setForm({ ...form, maxScore: Number(e.target.value), score: Number(e.target.value) })} /></label><label>Tag / topik<input value={form.tag} onChange={e => setForm({ ...form, tag: e.target.value })} /></label><label>Kode topik<input value={form.topicCode || ''} onChange={e => setForm({ ...form, topicCode: e.target.value })} placeholder="FISIKA-GERAK" /></label><label className="span-2">Kode kisi-kisi / blueprint (opsional)<input value={form.blueprintCode || ''} onChange={e => setForm({ ...form, blueprintCode: e.target.value })} placeholder="IPA-SMP-GERAK-001" /></label>
       <div className="span-2"><RichEditor uploadImage={uploadEditorImage} label="Soal / stimulus" value={form.questionHtml} onChange={v => setForm({ ...form, questionHtml: v })} placeholder="Tulis soal. Mendukung format teks, gambar, tabel, tautan, dan rumus LaTeX." /></div>
@@ -335,6 +345,6 @@ export function QuestionManager() {
       <label className="span-2">Gambar utama (Google Drive)<input type="file" accept="image/*" disabled={uploading} onChange={e => uploadImage(e.target.files?.[0])} />{form.imageFileId && <small>File ID: {form.imageFileId}</small>}</label>
       <div className="form-actions span-2"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Batal</button><button className="button primary">Simpan soal</button></div>
     </form></Modal>
-    <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Impor bank soal Excel / CSV" size="large"><div className="import-source-grid"><div className="import-source-card"><FileSpreadsheet size={28} /><div><strong>Excel SainsMasemba</strong><p className="muted">Unggah template .xlsx/.xls SainsMasemba. Soal menjodohkan dapat memakai kolom <code>matching_left</code>, <code>matching_right</code>, dan kunci <code>1:3|2:1</code>.</p></div><input type="file" accept=".xlsx,.xls" onChange={e => readExcel(e.target.files?.[0])} /><a className="button secondary" href="/templates/question-import-template.xlsx" download><Download size={16} />Template Excel asli</a></div><div className="import-source-card"><FileUp size={28} /><div><strong>CSV lanjutan</strong><p className="muted">Bisa ditempel langsung untuk integrasi eksternal. Header canonical juga mendukung field <code>interactionData</code>.</p></div></div></div>{importSummary && <div className="notice neutral">{importSummary}</div>}<textarea className="csv-area" rows={12} value={csv} onChange={e => setCsv(e.target.value)} placeholder="CSV hasil konversi Excel atau tempel CSV di sini..." /><div className="form-actions"><button className="button secondary" onClick={() => setImportOpen(false)}>Batal</button><button className="button primary" disabled={!csv.trim()} onClick={doImport}>Validasi & impor</button></div></Modal>
+    <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Impor bank soal Excel / CSV" size="large"><div className="import-source-grid"><div className="import-source-card"><FileSpreadsheet size={28} /><div><strong>Excel SainsMasemba</strong><p className="muted">Unggah template .xlsx/.xls SainsMasemba. Kolom <code>nama_tryout</code> dibaca sebagai nama paket soal dan <code>kategori_soal</code> sebagai kategorinya. Soal menjodohkan dapat memakai kolom <code>matching_left</code>, <code>matching_right</code>, dan kunci <code>1:3|2:1</code>.</p></div><input type="file" accept=".xlsx,.xls" onChange={e => readExcel(e.target.files?.[0])} /><a className="button secondary" href="/templates/question-import-template.xlsx" download><Download size={16} />Template Excel asli</a></div><div className="import-source-card"><FileUp size={28} /><div><strong>CSV lanjutan</strong><p className="muted">Bisa ditempel langsung untuk integrasi eksternal. Header canonical juga mendukung field <code>interactionData</code>.</p></div></div></div>{importSummary && <div className="notice neutral">{importSummary}</div>}<textarea className="csv-area" rows={12} value={csv} onChange={e => setCsv(e.target.value)} placeholder="CSV hasil konversi Excel atau tempel CSV di sini..." /><div className="form-actions"><button className="button secondary" onClick={() => setImportOpen(false)}>Batal</button><button className="button primary" disabled={!csv.trim()} onClick={doImport}>Validasi & impor</button></div></Modal>
   </>;
 }

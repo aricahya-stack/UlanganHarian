@@ -13,6 +13,7 @@ import type {
   MonitoringRow,
   Question,
   QuestionRecord,
+  QuestionPackageSummary,
   ResumeAttemptResponse,
   SaveAnswersResponse,
   Session,
@@ -46,6 +47,8 @@ export interface ExamApi {
   duplicateExam(token: string, examId: string): Promise<ExamRecord>;
   getExamQuestionIds(token: string, examId: string): Promise<string[]>;
   saveExamQuestions(token: string, examId: string, questionIds: string[]): Promise<{ questionCount: number }>;
+  listQuestionPackages(token: string): Promise<QuestionPackageSummary[]>;
+  applyQuestionPackage(token: string, examId: string, category: string, packageName: string): Promise<{ questionCount: number }>;
   listQuestions(token: string, examId?: string): Promise<QuestionRecord[]>;
   saveQuestion(token: string, input: AdminQuestionInput): Promise<QuestionRecord>;
   deleteQuestion(token: string, questionId: string): Promise<void>;
