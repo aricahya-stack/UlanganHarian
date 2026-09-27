@@ -19,17 +19,7 @@ const DEVELOPERS = [
 export function DeveloperPage() {
   return (
     <div className="developer-page">
-      <PageHeader
-        eyebrow="PENGEMBANG"
-        title="Tim Pengembang"
-        description="Informasi pengembang aplikasi ditampilkan dalam ukuran foto yang lebih kecil tanpa mengubah file foto asli."
-      />
-      <section className="developer-intro">
-        <p>
-          Menu ini menampilkan profil pengembang aplikasi. Foto yang digunakan mengikuti foto yang diunggah,
-          namun hanya ditampilkan dalam ukuran lebih kecil agar tampilan tetap rapi dan proporsional.
-        </p>
-      </section>
+      <PageHeader eyebrow="PENGEMBANG" title="Tim Pengembang" description="Tim pengembang aplikasi SainsMasemba." />
       <section className="developer-grid">
         {DEVELOPERS.map((developer) => (
           <article key={developer.email} className="developer-card">
@@ -40,7 +30,6 @@ export function DeveloperPage() {
               <Mail size={18} />
               <span>{developer.email}</span>
             </a>
-            <p className="developer-note">Silakan hubungi pengembang melalui email untuk dukungan, revisi, atau pengembangan lanjutan.</p>
           </article>
         ))}
       </section>
