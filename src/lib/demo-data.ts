@@ -22,15 +22,15 @@ export const demoExams: ExamRecord[] = [
   {
     examId: 'EX-FIS-001', ownerId: 'T-001', ownerName: 'Budi Santoso, S.Pd.', title: 'Ulangan Harian Fisika', subject: 'Fisika', className: 'XI IPA 1',
     startTime: start.toISOString(), endTime: end.toISOString(), durationMinutes: 45, questionCount: 20,
-    status: 'ACTIVE', resultVisibility: 'immediate', randomizeQuestion: true, randomizeOption: true,
-    attemptPolicy: 'single', token: 'FISIKA26', tokenRequired: true,
+    status: 'OPEN', resultVisibility: 'immediate', randomizeQuestion: true, randomizeOption: true,
+    attemptPolicy: 'single', token: 'FISIKA26', tokenRequired: true, descriptionHtml: '<p>Ulangan harian Fisika dengan dukungan <strong>LaTeX</strong> seperti \(F=ma\).</p>', rulesHtml: '<ol><li>Kerjakan mandiri.</li><li>Periksa status sinkronisasi.</li></ol>',
     instructions: 'Pilih satu jawaban paling tepat. Pastikan seluruh jawaban telah tersimpan sebelum mengirim ujian.'
   },
   {
     examId: 'EX-BIO-001', ownerId: 'T-002', ownerName: 'Siti Rahma, S.Pd.', title: 'Kuis Sistem Ekskresi', subject: 'Biologi', className: 'XI IPA 1',
     startTime: tomorrow.toISOString(), endTime: twoDays.toISOString(), durationMinutes: 30, questionCount: 15,
-    status: 'PUBLISHED', resultVisibility: 'after_exam_closed', randomizeQuestion: true, randomizeOption: false,
-    attemptPolicy: 'single', instructions: 'Kerjakan secara mandiri. Waktu pengerjaan 30 menit.'
+    status: 'SCHEDULED', resultVisibility: 'after_exam_closed', randomizeQuestion: true, randomizeOption: false,
+    attemptPolicy: 'single', descriptionHtml: '', rulesHtml: '<p>Kerjakan secara mandiri.</p>', instructions: 'Kerjakan secara mandiri. Waktu pengerjaan 30 menit.'
   },
 ];
 
@@ -59,8 +59,10 @@ const baseQuestions = [
 
 export const demoQuestions: QuestionRecord[] = baseQuestions.map((q, index) => ({
   questionId: `Q-${String(index + 1).padStart(3, '0')}`,
-  examId: 'EX-FIS-001',
-  questionText: q[0], optionA: q[1], optionB: q[2], optionC: q[3], optionD: q[4],
-  correctAnswer: q[5], score: 5, difficulty: index < 7 ? 'Mudah' : index < 14 ? 'Sedang' : 'Sulit',
-  tag: 'Fisika Dasar', status: 'ACTIVE'
+  examId: 'EX-FIS-001', authorId: 'T-001', authorName: 'Budi Santoso, S.Pd.', topicCode: 'FISIKA-DASAR', blueprintCode: '',
+  code: `FIS-${String(index + 1).padStart(3, '0')}`, stimulusOrder: index + 1,
+  questionText: q[0], questionHtml: index === 4 ? `<p>Jika massa benda <strong>2 kg</strong> dan percepatannya <span class="latex-token">\(3\,m/s^2\)</span>, gaya resultannya adalah ...</p>` : `<p>${q[0]}</p>`,
+  explanation: `<p>Jawaban yang benar adalah <strong>${q[5]}</strong>.</p>`, optionA: `<p>${q[1]}</p>`, optionB: `<p>${q[2]}</p>`, optionC: `<p>${q[3]}</p>`, optionD: `<p>${q[4]}</p>`, optionE: '',
+  correctAnswer: q[5], correctAnswers: q[5], score: 5, maxScore: 5, questionType: 'SINGLE_CHOICE', scoringMode: 'EXACT_MATCH', difficulty: index < 7 ? 'Mudah' : index < 14 ? 'Sedang' : 'Sulit',
+  tag: 'Fisika Dasar', status: 'PUBLISHED'
 }));

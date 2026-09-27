@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, BookOpenCheck, ClipboardList, FileQuestion, GraduationCap, LayoutDashboard, LogOut, Menu, MonitorCheck, Users, X } from 'lucide-react';
+import { BarChart3, BookOpenCheck, ClipboardList, FileQuestion, GraduationCap, LayoutDashboard, LogOut, Menu, MonitorCheck, UserCog, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { useSession } from '@/contexts/session-context';
 import { roleLabel } from '@/lib/role-route';
@@ -20,7 +20,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     { href: `${base}/exams`, label: 'Ujian', icon: ClipboardList },
     { href: `${base}/questions`, label: 'Bank Soal', icon: FileQuestion },
     { href: `${base}/students`, label: 'Peserta', icon: Users },
-    ...(isSuper ? [{ href: `${base}/teachers`, label: 'Guru', icon: GraduationCap }] : []),
+    ...(isSuper ? [{ href: `${base}/users`, label: 'Semua Akun', icon: UserCog }, { href: `${base}/teachers`, label: 'Guru', icon: GraduationCap }] : []),
     { href: `${base}/monitoring`, label: 'Monitoring', icon: MonitorCheck },
     { href: `${base}/results`, label: 'Hasil', icon: BarChart3 },
   ];

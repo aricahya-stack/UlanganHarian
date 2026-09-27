@@ -3,6 +3,7 @@ import type {
   AdminQuestionInput,
   AdminResultRow,
   AdminStudentInput,
+  AdminUserInput,
   DashboardStats,
   ExamRecord,
   ExamResult,
@@ -19,6 +20,7 @@ import type {
   TeacherRecord,
   SubmitResponse,
   UploadImageResponse,
+  User,
 } from './types';
 
 export interface ExamApi {
@@ -40,6 +42,8 @@ export interface ExamApi {
   saveExam(token: string, input: AdminExamInput): Promise<ExamRecord>;
   deleteExam(token: string, examId: string): Promise<void>;
   duplicateExam(token: string, examId: string): Promise<ExamRecord>;
+  getExamQuestionIds(token: string, examId: string): Promise<string[]>;
+  saveExamQuestions(token: string, examId: string, questionIds: string[]): Promise<{ questionCount: number }>;
   listQuestions(token: string, examId?: string): Promise<QuestionRecord[]>;
   saveQuestion(token: string, input: AdminQuestionInput): Promise<QuestionRecord>;
   deleteQuestion(token: string, questionId: string): Promise<void>;
@@ -48,6 +52,9 @@ export interface ExamApi {
   listStudents(token: string): Promise<StudentRecord[]>;
   saveStudent(token: string, input: AdminStudentInput): Promise<StudentRecord>;
   deleteStudent(token: string, userId: string): Promise<void>;
+  listUsers(token: string): Promise<User[]>;
+  saveUser(token: string, input: AdminUserInput): Promise<User>;
+  deleteUser(token: string, userId: string): Promise<void>;
   listTeachers(token: string): Promise<TeacherRecord[]>;
   saveTeacher(token: string, input: TeacherInput): Promise<TeacherRecord>;
   deleteTeacher(token: string, userId: string): Promise<void>;

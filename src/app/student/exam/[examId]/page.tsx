@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, Cloc
 import { AuthGuard } from '@/components/auth-guard';
 import { StudentShell } from '@/components/student-shell';
 import { Badge, Modal } from '@/components/ui';
+import { MathHtml } from '@/components/math-html';
 import { useSession } from '@/contexts/session-context';
 import { getExamApi, type Attempt, type ExamResult, type ExamSummary, type PreflightResult, type Question, type SaveStatus } from '@/lib/api';
 import { checkStorageReadiness, deleteLocalAttempt, findLocalAttemptByExam, saveLocalAttempt } from '@/lib/exam-store';
@@ -167,10 +168,25 @@ export default function ExamPage() {
     update(); const id = window.setInterval(update, 1000); return () => window.clearInterval(id);
   }, [attempt, phase]);
 
-  const chooseAnswer = (questionId: string, value: string) => {
+  const setAnswerValue = (questionId: string, value: string) => {
     const nextAnswers = { ...answers, [questionId]: value };
     setAnswers(nextAnswers); setDirtyCount((count) => count + 1); setSaveStatus(online ? 'local-only' : 'offline');
     persistLocal({ answers: nextAnswers });
+  };
+  const chooseAnswer = (question: Question, value: string) => {
+    if (question.questionType === 'MULTIPLE_CHOICE') {
+      const current = String(answers[question.questionId] || '').split(',').filter(Boolean);
+      const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+      setAnswerValue(question.questionId, next.sort().join(','));
+      return;
+    }
+    setAnswerValue(question.questionId, value);
+  };
+  const chooseTrueFalse = (question: Question, statementIndex: number, value: 'B' | 'S') => {
+    const parts = String(answers[question.questionId] || '').split(',');
+    while (parts.length < question.options.length) parts.push('');
+    parts[statementIndex] = value;
+    setAnswerValue(question.questionId, parts.join(','));
   };
 
   const toggleFlag = () => {
@@ -215,7 +231,8 @@ export default function ExamPage() {
     <div className="preexam-page"><button className="text-button" onClick={() => router.push('/student')}><ArrowLeft size={18}/>Beranda</button>
       <section className="preexam-card"><Badge tone="primary">{summary.subject}</Badge><h1>{summary.title}</h1><p className="preexam-class">{summary.className}</p>
         <div className="preexam-grid"><div><span>Jumlah soal</span><strong>{summary.questionCount}</strong></div><div><span>Durasi</span><strong>{formatDuration(summary.durationMinutes)}</strong></div><div><span>Mulai</span><strong>{formatDateTime(summary.startTime)}</strong></div><div><span>Selesai</span><strong>{formatDateTime(summary.endTime)}</strong></div></div>
-        {'instructions' in summary && <div className="instructions">Kerjakan ujian secara mandiri. Jangan menutup aplikasi sebelum status pengumpulan berhasil.</div>}
+        {summary.descriptionHtml && <div className="exam-rules-preview"><MathHtml html={summary.descriptionHtml} className="reading-content"/></div>}
+        {summary.rulesHtml ? <div className="instructions"><MathHtml html={summary.rulesHtml} className="reading-content"/></div> : <div className="instructions">{summary.instructions || 'Kerjakan ujian secara mandiri. Jangan menutup aplikasi sebelum status pengumpulan berhasil.'}</div>}
       </section>
       <section className="readiness-card"><div className="section-title"><div><span className="eyebrow">PRE-FLIGHT</span><h2>Kesiapan ujian</h2></div><ShieldCheck className="primary-text"/></div>
         <div className="readiness-list"><div><span className={online ? 'ready-dot ok' : 'ready-dot no'}>{online ? <Check/> : <AlertTriangle/>}</span><div><strong>Koneksi internet</strong><small>{online ? 'Tersedia untuk memulai dan sinkronisasi.' : 'Tidak tersedia. Sambungkan internet untuk memulai.'}</small></div></div><div><span className={preflight?.indexedDbAvailable ? 'ready-dot ok' : 'ready-dot warn'}>{preflight?.indexedDbAvailable ? <Check/> : <AlertTriangle/>}</span><div><strong>Backup jawaban lokal</strong><small>{preflight?.indexedDbAvailable ? 'IndexedDB siap digunakan.' : 'Tidak tersedia; aplikasi akan mengandalkan memori dan server.'}</small></div></div><div><span className="ready-dot ok"><Check/></span><div><strong>Storage ringan</strong><small>{preflight?.quotaBytes ? `${formatBytes(preflight.usageBytes)} terpakai dari estimasi ${formatBytes(preflight.quotaBytes)} kuota aplikasi.` : 'Aplikasi hanya menyimpan backup jawaban berukuran kecil.'}</small></div></div><div><span className="ready-dot ok"><Check/></span><div><strong>Timer server</strong><small>Durasi divalidasi backend dan tidak bergantung pada jam HP.</small></div></div></div>
@@ -241,8 +258,9 @@ export default function ExamPage() {
         <div className="question-progress"><div style={{ width: `${((currentIndex + 1) / Math.max(1, totalQuestions)) * 100}%` }}/></div>
         {!currentQuestion ? <div className="question-loading"><LoaderCircle className="spin"/><strong>Memuat soal berikutnya...</strong><small>Prefetch sedang menyiapkan batch soal.</small></div> : <>
           <div className="question-heading"><div><span className="question-number">{String(currentIndex + 1).padStart(2, '0')}</span><span className="question-tag">{currentQuestion.tag || summary.subject}</span></div><button className={flagged.includes(currentQuestion.questionId) ? 'flag-button active' : 'flag-button'} onClick={toggleFlag}><Flag size={17}/>{flagged.includes(currentQuestion.questionId) ? 'Ditandai' : 'Ragu-ragu'}</button></div>
-          <article className="question-card"><p className="question-text">{currentQuestion.text}</p>{currentQuestion.imageUrl && <img className="question-image" src={currentQuestion.imageUrl} alt="Ilustrasi soal"/>}
-            <div className="option-list">{currentQuestion.options.map((option, idx) => { const selected = answers[currentQuestion.questionId] === option.key; return <button key={`${currentQuestion.questionId}-${option.key}`} className={selected ? 'option-card selected' : 'option-card'} onClick={() => chooseAnswer(currentQuestion.questionId, option.key)}><span className="option-letter">{String.fromCharCode(65 + idx)}</span><span>{option.label}</span><span className="option-check">{selected ? <Check size={17}/> : <Circle size={17}/>}</span></button>; })}</div>
+          <article className="question-card"><MathHtml html={currentQuestion.questionHtml || currentQuestion.text} className="question-text reading-content"/>{currentQuestion.imageUrl && <img className="question-image" src={currentQuestion.imageUrl} alt="Ilustrasi soal"/>}
+            {currentQuestion.questionType === 'TRUE_FALSE' ? <div className="true-false-stack">{currentQuestion.options.map((option, idx) => { const parts = String(answers[currentQuestion.questionId] || '').split(','); const selected = parts[idx] || ''; return <div className="true-false-item" key={`${currentQuestion.questionId}-${option.key}`}><div className="question-preview-option"><strong>{idx + 1}</strong><MathHtml html={option.label} className="reading-content"/></div><div className="true-false-controls"><button type="button" className={selected === 'B' ? 'button primary' : 'button secondary'} onClick={() => chooseTrueFalse(currentQuestion, idx, 'B')}>Benar</button><button type="button" className={selected === 'S' ? 'button primary' : 'button secondary'} onClick={() => chooseTrueFalse(currentQuestion, idx, 'S')}>Salah</button></div></div>; })}</div> : <div className="option-list">{currentQuestion.options.map((option, idx) => { const selected = currentQuestion.questionType === 'MULTIPLE_CHOICE' ? String(answers[currentQuestion.questionId] || '').split(',').includes(option.key) : answers[currentQuestion.questionId] === option.key; return <button key={`${currentQuestion.questionId}-${option.key}`} className={selected ? 'option-card selected' : 'option-card'} onClick={() => chooseAnswer(currentQuestion, option.key)}><span className="option-letter">{String.fromCharCode(65 + idx)}</span><MathHtml html={option.label} className="reading-content"/><span className="option-check">{selected ? <Check size={17}/> : <Circle size={17}/>}</span></button>; })}</div>}
+            {currentQuestion.questionType === 'MULTIPLE_CHOICE' && <div className="answer-help">Pilih semua jawaban yang benar. Anda dapat memilih lebih dari satu opsi.</div>}
           </article>
         </>}
       </main>

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import 'katex/dist/katex.min.css';
 import './globals.css';
 import { SessionProvider } from '@/contexts/session-context';
 import { PwaRegister } from '@/components/pwa-register';

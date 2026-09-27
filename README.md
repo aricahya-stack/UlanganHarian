@@ -1,4 +1,4 @@
-# SainsMasemba — Mobile Exam PWA (3 Peran)
+# SainsMasemba — Mobile Exam PWA Full Feature (3 Peran)
 
 SainsMasemba adalah **platform ujian/ulangan**, bukan LMS. Aplikasi ini mobile-first, installable sebagai PWA, online-first namun tetap toleran terhadap koneksi yang tidak stabil.
 
@@ -10,12 +10,12 @@ SainsMasemba adalah **platform ujian/ulangan**, bukan LMS. Aplikasi ini mobile-f
 - Kelola akun siswa
 - Melihat dan mengelola seluruh ujian
 - Menentukan guru pemilik ujian
-- Melihat seluruh bank soal, monitoring, dan hasil
+- Melihat seluruh bank soal, melakukan pemetaan soal, monitoring, dan hasil
 
 ### 2. Guru
 - Dashboard guru
 - Membuat, mengedit, menggandakan, dan menutup ujian miliknya
-- Mengelola bank soal hanya untuk ujian miliknya
+- Mengelola Bank Soal reusable miliknya dan memetakan soal ke beberapa ujian
 - Mengelola akun peserta
 - Monitoring attempt hanya pada ujian miliknya
 - Melihat/ekspor hasil hanya pada ujian miliknya
@@ -31,6 +31,25 @@ SainsMasemba adalah **platform ujian/ulangan**, bukan LMS. Aplikasi ini mobile-f
 - Resume attempt
 - Final submit idempotent
 - Melihat hasil sesuai konfigurasi visibilitas
+
+## Fitur parity dari SainsMasemba lama
+
+Modul inti bukan versi minimal. Versi ini membawa kembali pola pengelolaan SainsMasemba lama:
+
+- WYSIWYG editor: bold, italic, underline, H2/H3, list, link, gambar, tabel, undo/redo
+- Source HTML mode
+- LaTeX + preview KaTeX
+- Gambar dari toolbar WYSIWYG diunggah ke Google Drive
+- Pilihan ganda biasa, pilihan ganda kompleks, dan benar/salah
+- Penilaian EXACT_MATCH dan PARTIAL_NO_PENALTY
+- Opsi A-E, pembahasan rich text, bobot, tingkat kesulitan, status DRAFT/REVIEW/PUBLISHED/ARCHIVED
+- Kode topik/kisi-kisi dan stimulus/order
+- Import Excel `.xlsx` menggunakan template SainsMasemba lama
+- Bank Soal berdiri sendiri dan reusable
+- EXAM_QUESTIONS memetakan satu soal ke satu atau lebih ujian tanpa menduplikasi soal
+- Pemetaan soal dapat diurutkan dari Pengaturan Ujian
+- Deskripsi dan aturan ujian memakai WYSIWYG + LaTeX
+- Manajemen seluruh akun Super Admin/Guru/Siswa
 
 ## Stack
 
@@ -104,6 +123,9 @@ Pada instalasi lama, `setupSainsMasemba()` juga:
 - mengubah role legacy `admin` menjadi `super_admin`;
 - menambahkan kolom `subject` pada USERS bila belum ada;
 - menambahkan kolom `ownerId` pada EXAMS bila belum ada;
+- menambahkan author/topik/kisi-kisi pada QUESTIONS;
+- membuat sheet `EXAM_QUESTIONS`;
+- memigrasikan hubungan legacy `QUESTIONS.examId` menjadi pemetaan reusable tanpa menghapus data lama;
 - memberikan owner default pada ujian lama yang belum punya owner.
 
 ## Struktur Google Sheets
@@ -111,6 +133,7 @@ Pada instalasi lama, `setupSainsMasemba()` juga:
 - USERS
 - EXAMS
 - QUESTIONS
+- EXAM_QUESTIONS
 - ANSWER_KEYS
 - ATTEMPTS
 - SUBMISSIONS
@@ -123,6 +146,8 @@ Field penting tambahan:
 USERS.role     = super_admin | teacher | student
 USERS.subject  = mata pelajaran guru
 EXAMS.ownerId  = userId guru pemilik ujian
+QUESTIONS.authorId = pemilik soal bank
+EXAM_QUESTIONS = pemetaan examId <-> questionId + orderNo
 ```
 
 ## Deploy GitHub + Vercel

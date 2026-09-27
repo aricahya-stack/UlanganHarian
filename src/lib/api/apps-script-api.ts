@@ -4,6 +4,7 @@ import type {
   AdminQuestionInput,
   AdminResultRow,
   AdminStudentInput,
+  AdminUserInput,
   DashboardStats,
   ExamRecord,
   ExamResult,
@@ -20,6 +21,7 @@ import type {
   TeacherRecord,
   SubmitResponse,
   UploadImageResponse,
+  User,
 } from './types';
 
 type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
@@ -72,6 +74,8 @@ export class GoogleAppsScriptExamApi implements ExamApi {
   saveExam(token: string, input: AdminExamInput) { return this.request<ExamRecord>('saveExam', { token, input }); }
   deleteExam(token: string, examId: string) { return this.request<void>('deleteExam', { token, examId }); }
   duplicateExam(token: string, examId: string) { return this.request<ExamRecord>('duplicateExam', { token, examId }); }
+  getExamQuestionIds(token: string, examId: string) { return this.request<string[]>('getExamQuestionIds', { token, examId }); }
+  saveExamQuestions(token: string, examId: string, questionIds: string[]) { return this.request<{ questionCount: number }>('saveExamQuestions', { token, examId, questionIds }); }
   listQuestions(token: string, examId?: string) { return this.request<QuestionRecord[]>('listQuestions', { token, examId }); }
   saveQuestion(token: string, input: AdminQuestionInput) { return this.request<QuestionRecord>('saveQuestion', { token, input }); }
   deleteQuestion(token: string, questionId: string) { return this.request<void>('deleteQuestion', { token, questionId }); }
@@ -80,6 +84,9 @@ export class GoogleAppsScriptExamApi implements ExamApi {
   listStudents(token: string) { return this.request<StudentRecord[]>('listStudents', { token }); }
   saveStudent(token: string, input: AdminStudentInput) { return this.request<StudentRecord>('saveStudent', { token, input }); }
   deleteStudent(token: string, userId: string) { return this.request<void>('deleteStudent', { token, userId }); }
+  listUsers(token: string) { return this.request<User[]>('listUsers', { token }); }
+  saveUser(token: string, input: AdminUserInput) { return this.request<User>('saveUser', { token, input }); }
+  deleteUser(token: string, userId: string) { return this.request<void>('deleteUser', { token, userId }); }
   listTeachers(token: string) { return this.request<TeacherRecord[]>('listTeachers', { token }); }
   saveTeacher(token: string, input: TeacherInput) { return this.request<TeacherRecord>('saveTeacher', { token, input }); }
   deleteTeacher(token: string, userId: string) { return this.request<void>('deleteTeacher', { token, userId }); }
