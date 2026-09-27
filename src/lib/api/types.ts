@@ -38,6 +38,7 @@ export interface ExamSummary {
   status: ExamStatus;
   resultVisibility: ResultVisibility;
   attemptStatus?: AttemptStatus;
+  availableNow?: boolean;
   attemptId?: string;
   score?: number | null;
   tokenRequired?: boolean;
