@@ -6,14 +6,14 @@ import { Badge, Modal, PageHeader, Skeleton } from '@/components/ui';
 import { RichEditor } from '@/components/rich-editor';
 import { MathHtml } from '@/components/math-html';
 import { useSession } from '@/contexts/session-context';
-import { getExamApi, type AdminExamInput, type ExamRecord, type QuestionPackageSummary, type QuestionRecord, type TeacherRecord } from '@/lib/api';
-import { formatDateTime } from '@/lib/format';
+import { getExamApi, type AdminExamInput, type ExamRecord, type QuestionPackageSummary, type QuestionRecord, type StudentRecord, type TeacherRecord } from '@/lib/api';
+import { formatDateTime, toWibDateTimeLocal, wibDateTimeLocalToIso } from '@/lib/format';
 
 const emptyForm = (): AdminExamInput => ({
-  title: '', subject: '', className: 'XI IPA 1',
-  startTime: new Date(Date.now() + 3600_000).toISOString().slice(0, 16),
-  endTime: new Date(Date.now() + 25 * 3600_000).toISOString().slice(0, 16),
-  durationMinutes: 45, questionCount: 0, status: 'DRAFT', randomizeQuestion: true, randomizeOption: true,
+  title: '', subject: '', className: '',
+  startTime: toWibDateTimeLocal(new Date(Date.now() + 3600_000)),
+  endTime: toWibDateTimeLocal(new Date(Date.now() + 25 * 3600_000)),
+  durationMinutes: 45, questionCount: 0, status: 'SCHEDULED', randomizeQuestion: true, randomizeOption: true,
   resultVisibility: 'immediate', token: '', attemptPolicy: 'single', descriptionHtml: '', instructions: '',
   rulesHtml: '<p>Kerjakan secara mandiri. Pastikan seluruh jawaban tersimpan sebelum mengumpulkan.</p>',
 });
@@ -24,6 +24,7 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
   const { session } = useSession();
   const [items, setItems] = useState<ExamRecord[]>([]);
   const [teachers, setTeachers] = useState<TeacherRecord[]>([]);
+  const [students, setStudents] = useState<StudentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<AdminExamInput>(emptyForm());
@@ -45,12 +46,13 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
 
   const load = async () => {
     if (!session) return;
-    const [exams, teacherRows, packageRows] = await Promise.all([
+    const [exams, teacherRows, packageRows, studentRows] = await Promise.all([
       getExamApi().listExams(session.token),
       superAdmin ? getExamApi().listTeachers(session.token) : Promise.resolve([]),
       getExamApi().listQuestionPackages(session.token),
+      getExamApi().listStudents(session.token),
     ]);
-    setItems(exams); setTeachers(teacherRows); setPackages(packageRows); setLoading(false);
+    setItems(exams); setTeachers(teacherRows); setPackages(packageRows); setStudents(studentRows); setLoading(false);
   };
   useEffect(() => { load(); }, [session]);
 
@@ -59,19 +61,20 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
   const selectedQuestions = useMemo(() => selected.map((id) => bank.find((q) => q.questionId === id)).filter(Boolean) as QuestionRecord[], [selected, bank]);
   const packageCategories = useMemo(() => [...new Set(packages.map((p) => p.category || 'Tanpa Kategori'))], [packages]);
   const filteredPackages = useMemo(() => packages.filter((p) => !selectedCategory || p.category === selectedCategory), [packages, selectedCategory]);
+  const classOptions = useMemo(() => [...new Set(students.filter((student) => student.status === 'ACTIVE').map((student) => String(student.className || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id-ID')), [students]);
   const selectedPackageInfo = useMemo(() => packages.find((p) => p.category === selectedCategory && p.packageName === selectedPackage) || packages.find((p) => p.packageName === selectedPackage), [packages, selectedCategory, selectedPackage]);
 
   const edit = (exam: ExamRecord) => {
     setFormError('');
-    setForm({ ...exam, startTime: new Date(exam.startTime).toISOString().slice(0, 16), endTime: new Date(exam.endTime).toISOString().slice(0, 16), token: exam.token || '', descriptionHtml: exam.descriptionHtml || '', rulesHtml: exam.rulesHtml || '', instructions: exam.instructions || '' });
+    setForm({ ...exam, startTime: toWibDateTimeLocal(exam.startTime), endTime: toWibDateTimeLocal(exam.endTime), token: exam.token || '', descriptionHtml: exam.descriptionHtml || '', rulesHtml: exam.rulesHtml || '', instructions: exam.instructions || '' });
     setSourceMode('manual'); setSelectedCategory(''); setSelectedPackage('');
     setOpen(true);
   };
-  const createNew = () => { setFormError(''); setForm(emptyForm()); setSourceMode(packages.length ? 'package' : 'manual'); setSelectedCategory(packageCategories[0] || ''); setSelectedPackage(''); setOpen(true); };
+  const createNew = () => { setFormError(''); setForm({ ...emptyForm(), className: classOptions[0] || '' }); setSourceMode(packages.length ? 'package' : 'manual'); setSelectedCategory(packageCategories[0] || ''); setSelectedPackage(''); setOpen(true); };
   const save = async (e: FormEvent) => {
     e.preventDefault(); if (!session) return; setSaving(true); setFormError('');
     try {
-      const saved = await getExamApi().saveExam(session.token, { ...form, startTime: new Date(form.startTime).toISOString(), endTime: new Date(form.endTime).toISOString() });
+      const saved = await getExamApi().saveExam(session.token, { ...form, startTime: wibDateTimeLocalToIso(form.startTime), endTime: wibDateTimeLocalToIso(form.endTime) });
       if (sourceMode === 'package' && selectedPackage) {
         await getExamApi().applyQuestionPackage(session.token, saved.examId, selectedCategory, selectedPackage);
       }
@@ -114,12 +117,12 @@ export function ExamManager({ superAdmin = false }: { superAdmin?: boolean }) {
       {formError && <div className="span-2 notice danger">{formError}</div>}
       {superAdmin && <label className="span-2">Guru pemilik<select value={form.ownerId || ''} onChange={(e) => setForm({ ...form, ownerId: e.target.value })} required><option value="">Pilih guru</option>{teachers.map((t) => <option key={t.userId} value={t.userId}>{t.name} • {t.subject}</option>)}</select></label>}
       <label className="span-2">Judul ujian<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}/></label>
-      <label>Mata pelajaran<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}/></label><label>Kelas<input required value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })}/></label>
+      <label>Mata pelajaran<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}/></label><label>Kelas peserta<select required value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })}><option value="">Pilih kelas</option>{classOptions.map((className) => <option key={className} value={className}>{className}</option>)}</select><span className="answer-help">Kelas diambil dari data Peserta. Hanya siswa di kelas ini yang dapat melihat dan memulai ujian.</span></label>
       <div className="span-2"><RichEditor uploadImage={uploadEditorImage} label="Deskripsi ujian" value={form.descriptionHtml || ''} onChange={(value) => setForm({ ...form, descriptionHtml: value })} placeholder="Tuliskan deskripsi ujian. Mendukung tabel, gambar, tautan, source HTML, dan LaTeX."/></div>
       <div className="span-2 panel"><strong>Sumber soal</strong><div className="action-row"><label className="check-label"><input type="radio" name="question-source" checked={sourceMode === 'package'} onChange={() => setSourceMode('package')}/>Pilih paket soal</label><label className="check-label"><input type="radio" name="question-source" checked={sourceMode === 'manual'} onChange={() => setSourceMode('manual')}/>Pilih manual dari Bank Soal</label></div>{sourceMode === 'package' ? <div className="form-grid"><label>Kategori soal<select value={selectedCategory} onChange={(e) => { setSelectedCategory(e.target.value); setSelectedPackage(''); }}><option value="">Semua kategori</option>{packageCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label>Paket soal<select value={selectedPackage} onChange={(e) => setSelectedPackage(e.target.value)} required><option value="">Pilih paket soal</option>{filteredPackages.map((pkg) => <option key={`${pkg.category}-${pkg.packageName}`} value={pkg.packageName}>{pkg.packageName} • {pkg.publishedCount ?? pkg.questionCount}/{pkg.questionCount} siap</option>)}</select></label>{selectedPackageInfo && <div className="span-2 notice neutral"><strong>{selectedPackageInfo.packageName}</strong><br/>{selectedPackageInfo.publishedCount ?? selectedPackageInfo.questionCount} soal berstatus PUBLISHED/ACTIVE dari {selectedPackageInfo.questionCount} soal dalam paket. Saat jadwal disimpan, soal siap pakai langsung dipetakan ke ujian.</div>}</div> : <div className="notice neutral">Jadwal disimpan terlebih dahulu. Setelah itu gunakan tombol <strong>Pemetaan Soal</strong> pada daftar ujian untuk memilih soal satu per satu.</div>}</div>
-      <label>Mulai<input type="datetime-local" required value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}/></label><label>Selesai<input type="datetime-local" required value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}/></label>
+      <label>Mulai <span className="field-timezone">WIB</span><input type="datetime-local" required value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}/></label><label>Selesai <span className="field-timezone">WIB</span><input type="datetime-local" required value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}/></label>
       <label>Durasi (menit)<input type="number" min="1" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: Number(e.target.value) })}/></label><label>Jumlah soal terpetakan<input type="number" value={form.questionCount} readOnly/><span className="answer-help">Jumlah ini mengikuti Pemetaan Soal, bukan diketik manual.</span></label>
-      <label>Status<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AdminExamInput['status'] })}><option>DRAFT</option><option>SCHEDULED</option><option>OPEN</option><option>PAUSED</option><option>ENDED</option><option>ARCHIVED</option></select></label>
+      <label>Status<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AdminExamInput['status'] })}><option>DRAFT</option><option>SCHEDULED</option><option>OPEN</option><option>PAUSED</option><option>ENDED</option><option>ARCHIVED</option></select><small>DRAFT tidak terlihat siswa. SCHEDULED terlihat sesuai kelas dan otomatis dapat dimulai saat waktu mulai.</small></label>
       <label>Visibilitas hasil<select value={form.resultVisibility} onChange={(e) => setForm({ ...form, resultVisibility: e.target.value as AdminExamInput['resultVisibility'] })}><option value="immediate">Langsung</option><option value="after_exam_closed">Setelah ujian ditutup</option><option value="manual_publish">Manual publish</option><option value="hidden">Disembunyikan</option></select></label>
       <label>Token ujian (opsional)<input value={form.token || ''} onChange={(e) => setForm({ ...form, token: e.target.value.toUpperCase() })}/></label><label>Kebijakan percobaan<select value={form.attemptPolicy} onChange={(e) => setForm({ ...form, attemptPolicy: e.target.value as AdminExamInput['attemptPolicy'] })}><option value="single">Satu kali</option><option value="allow_reset_by_admin">Dapat di-reset admin</option></select></label>
       <label className="check-label"><input type="checkbox" checked={form.randomizeQuestion} onChange={(e) => setForm({ ...form, randomizeQuestion: e.target.checked })}/>Acak urutan soal</label><label className="check-label"><input type="checkbox" checked={form.randomizeOption} onChange={(e) => setForm({ ...form, randomizeOption: e.target.checked })}/>Acak pilihan jawaban</label>

@@ -43,6 +43,13 @@ export default function ExamPage() {
   const [focusViolationCount, setFocusViolationCount] = useState(0);
   const [focusWarningOpen, setFocusWarningOpen] = useState(false);
   const [securityNotice, setSecurityNotice] = useState('');
+  const [attemptPaused, setAttemptPaused] = useState(false);
+  const [teacherWarning, setTeacherWarning] = useState('');
+  const [teacherWarningOpen, setTeacherWarningOpen] = useState(false);
+  const lastTeacherWarningRef = useRef('');
+  const pendingFocusViolations = useRef(0);
+  const fullscreenExpected = useRef(false);
+  const lastFocusEventAt = useRef(0);
   const syncInFlight = useRef(false);
   const prefetchInFlight = useRef(false);
   const autoSubmitStarted = useRef(false);
@@ -115,7 +122,7 @@ export default function ExamPage() {
   }, [attempt, currentIndex, answers, flagged, revision, lastSyncAt]);
 
   const syncAnswers = useCallback(async (force = false) => {
-    if (!session || !attempt || syncInFlight.current || attempt.status !== 'IN_PROGRESS') return;
+    if (!session || !attempt || syncInFlight.current || !['IN_PROGRESS', 'PAUSED'].includes(attempt.status)) return;
     if (!navigator.onLine) { setSaveStatus('offline'); return; }
     if (!force && dirtyCount === 0) return;
     syncInFlight.current = true; setSaveStatus('syncing');
@@ -132,7 +139,7 @@ export default function ExamPage() {
     if (phase !== 'exam') return;
     const id = window.setInterval(() => syncAnswers(false), 30_000);
     return () => window.clearInterval(id);
-  }, [phase, syncAnswers]);
+  }, [phase, syncAnswers, session, attempt?.attemptId]);
 
   useEffect(() => {
     if (phase === 'exam' && dirtyCount >= 5) syncAnswers(true);
@@ -142,11 +149,37 @@ export default function ExamPage() {
     if (phase !== 'exam' && phase !== 'review') return;
     document.body.classList.add('exam-session-active');
     const onOnline = () => syncAnswers(true);
+    const registerFocusExit = () => {
+      const now = Date.now();
+      if (now - lastFocusEventAt.current < 1200) return;
+      lastFocusEventAt.current = now;
+      syncAnswers(true);
+      pendingFocusViolations.current += 1;
+      setFocusViolationCount((count) => count + 1);
+      setFocusWarningOpen(true);
+      if (session && attempt?.attemptId && navigator.onLine) {
+        const count = pendingFocusViolations.current;
+        pendingFocusViolations.current = 0;
+        getExamApi().reportFocusViolation(session.token, attempt.attemptId, count)
+          .then((response) => setFocusViolationCount(response.focusViolationCount))
+          .catch(() => { pendingFocusViolations.current += count; });
+      }
+    };
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        syncAnswers(true);
-        setFocusViolationCount((count) => count + 1);
-        setFocusWarningOpen(true);
+      if (document.visibilityState === 'hidden') registerFocusExit();
+      else if (pendingFocusViolations.current > 0 && session && attempt?.attemptId) {
+        const count = pendingFocusViolations.current;
+        pendingFocusViolations.current = 0;
+        getExamApi().reportFocusViolation(session.token, attempt.attemptId, count)
+          .then((response) => setFocusViolationCount(response.focusViolationCount))
+          .catch(() => { pendingFocusViolations.current += count; });
+      }
+    };
+    const onWindowBlur = () => registerFocusExit();
+    const onFullscreenChange = () => {
+      if (fullscreenExpected.current && !document.fullscreenElement && document.visibilityState === 'visible') {
+        setSecurityNotice('Mode layar penuh dinonaktifkan. Kembali ke mode layar penuh untuk melanjutkan ujian.');
+        registerFocusExit();
       }
     };
     const blockClipboard = (event: ClipboardEvent) => {
@@ -170,9 +203,11 @@ export default function ExamPage() {
     };
     const onBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('online', onOnline);
+    window.addEventListener('blur', onWindowBlur);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('beforeunload', onBeforeUnload);
     document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('copy', blockClipboard);
     document.addEventListener('cut', blockClipboard);
     document.addEventListener('paste', blockClipboard);
@@ -181,9 +216,11 @@ export default function ExamPage() {
     return () => {
       document.body.classList.remove('exam-session-active');
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('blur', onWindowBlur);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
       document.removeEventListener('copy', blockClipboard);
       document.removeEventListener('cut', blockClipboard);
       document.removeEventListener('paste', blockClipboard);
@@ -195,6 +232,7 @@ export default function ExamPage() {
   const requestExamFullscreen = async () => {
     try {
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+      if (document.fullscreenElement) fullscreenExpected.current = true;
     } catch {}
   };
 
@@ -206,13 +244,13 @@ export default function ExamPage() {
   const begin = async () => {
     if (!session || !summary) return;
     requestExamFullscreen();
-    setFocusViolationCount(0); setFocusWarningOpen(false); setSecurityNotice('');
-    if (!navigator.onLine && summary.attemptStatus !== 'IN_PROGRESS') { setError('Koneksi internet diperlukan untuk memulai attempt baru.'); return; }
+    setFocusViolationCount(0); setFocusWarningOpen(false); setSecurityNotice(''); setAttemptPaused(false); setTeacherWarningOpen(false);
+    if (!navigator.onLine && !['IN_PROGRESS', 'PAUSED'].includes(String(summary.attemptStatus || ''))) { setError('Koneksi internet diperlukan untuk memulai attempt baru.'); return; }
     setError(''); setRemainingMs(null); autoSubmitStarted.current = false; setPhase('starting');
     try {
       let response;
       const local = await findLocalAttemptByExam(examId);
-      if (summary.attemptStatus === 'IN_PROGRESS' && summary.attemptId) {
+      if (['IN_PROGRESS', 'PAUSED'].includes(String(summary.attemptStatus || '')) && summary.attemptId) {
         response = await getExamApi().resumeAttempt(session.token, summary.attemptId, 0, 10);
         setAttempt(response.attempt); mergeQuestions(response.questions); setAnswers({ ...response.answers, ...(local?.answers || {}) });
         setFlagged(local?.flagged || []); setCurrentIndex(Math.min(local?.currentIndex || 0, response.attempt.questionCount - 1)); setRevision(Math.max(response.attempt.revision, local?.revision || 0));
@@ -222,6 +260,7 @@ export default function ExamPage() {
         setAttempt(response.attempt); mergeQuestions(response.initialQuestions); setAnswers({}); setFlagged([]); setCurrentIndex(0); setRevision(response.attempt.revision);
       }
       const activeAttempt = response.attempt;
+      setAttemptPaused(activeAttempt.status === 'PAUSED');
       const expiresAtMs = new Date(activeAttempt.expiresAt).getTime();
       const serverTimeMs = new Date(activeAttempt.serverTime).getTime();
       const initialRemaining = Number.isFinite(expiresAtMs) && Number.isFinite(serverTimeMs) ? expiresAtMs - serverTimeMs : null;
@@ -241,7 +280,7 @@ export default function ExamPage() {
   }, [phase, attempt, session, loadedCount, currentIndex, mergeQuestions]);
 
   useEffect(() => {
-    if (!attempt || (phase !== 'exam' && phase !== 'review')) return;
+    if (!attempt || attemptPaused || (phase !== 'exam' && phase !== 'review')) return;
     const expiresAtMs = new Date(attempt.expiresAt).getTime();
     const serverTimeMs = new Date(attempt.serverTime).getTime();
     const clientAnchorMs = Date.now();
@@ -251,7 +290,7 @@ export default function ExamPage() {
       setRemainingMs(expiresAtMs - (Date.now() + serverOffsetMs));
     };
     update(); const id = window.setInterval(update, 1000); return () => window.clearInterval(id);
-  }, [attempt, phase]);
+  }, [attempt, phase, attemptPaused]);
 
   const setAnswerValue = (questionId: string, value: string) => {
     const nextAnswers = { ...answers, [questionId]: value };
@@ -312,13 +351,39 @@ export default function ExamPage() {
   }, [session, attempt, phase, syncAnswers, revision, answers]);
 
   useEffect(() => {
-    if ((phase === 'exam' || phase === 'review') && remainingMs !== null && remainingMs <= 0 && attempt && !autoSubmitStarted.current) {
+    if (!attemptPaused && (phase === 'exam' || phase === 'review') && remainingMs !== null && remainingMs <= 0 && attempt && !autoSubmitStarted.current) {
       autoSubmitStarted.current = true;
       finalize(true);
     }
-  }, [remainingMs, phase, attempt, finalize]);
+  }, [remainingMs, phase, attempt, finalize, attemptPaused]);
+
+
+  const refreshAttemptControl = useCallback(async () => {
+    if (!session || !attempt?.attemptId || !navigator.onLine) return;
+    try {
+      const control = await getExamApi().getAttemptControl(session.token, attempt.attemptId);
+      setFocusViolationCount(control.focusViolationCount || 0);
+      setAttemptPaused(control.status === 'PAUSED');
+      setAttempt((current) => current ? { ...current, status: control.status, expiresAt: control.expiresAt || current.expiresAt, serverTime: control.serverTime || current.serverTime } : current);
+      if (control.warningAt && control.warningAt !== lastTeacherWarningRef.current) {
+        lastTeacherWarningRef.current = control.warningAt;
+        setTeacherWarning(control.warningMessage || 'Guru mengirim peringatan. Tetap fokus pada ujian.');
+        setTeacherWarningOpen(true);
+      }
+      if (control.status === 'EXPIRED') setRemainingMs(0);
+    } catch { /* monitoring control is best-effort; exam answers remain local/server backed up */ }
+  }, [session, attempt?.attemptId]);
+
+  useEffect(() => {
+    if (!attempt?.attemptId || (phase !== 'exam' && phase !== 'review')) return;
+    refreshAttemptControl();
+    const id = window.setInterval(refreshAttemptControl, 20_000);
+    return () => window.clearInterval(id);
+  }, [attempt?.attemptId, phase, refreshAttemptControl]);
 
   const saveLabel = saveStatus === 'synced' ? 'Semua jawaban tersimpan' : saveStatus === 'syncing' ? 'Menyimpan jawaban...' : saveStatus === 'offline' ? 'Offline • tersimpan sementara' : saveStatus === 'local-only' ? 'Tersimpan di perangkat' : 'Sinkronisasi tertunda';
+  const teacherWarningModal = <Modal open={teacherWarningOpen} onClose={() => setTeacherWarningOpen(false)} title="Peringatan dari guru" size="small"><div className="focus-warning teacher-warning"><AlertTriangle size={28}/><p>{teacherWarning}</p><button className="button primary full" onClick={() => { setTeacherWarningOpen(false); requestExamFullscreen(); }}>Saya mengerti</button></div></Modal>;
+  const pauseOverlay = attemptPaused ? <div className="exam-pause-overlay"><div><div className="pause-symbol">Ⅱ</div><span className="eyebrow">UJIAN DIJEDA</span><h2>Guru menjeda pengerjaan Anda.</h2><p>Jawaban tetap tersimpan. Tunggu sampai guru menekan <strong>Lanjut</strong>. Waktu ujian tidak berkurang selama jeda.</p><LoaderCircle className="spin"/><small>Memeriksa status setiap 20 detik...</small></div></div> : null;
   const focusGuardModal = <Modal open={focusWarningOpen} onClose={() => undefined} title="Kembali ke ujian" size="small"><div className="focus-warning"><AlertTriangle size={28}/><p>Aplikasi ujian sempat tidak aktif. Selama ujian, tetap berada di SainsMasemba sampai jawaban dikumpulkan.</p><small>Perpindahan terdeteksi: {focusViolationCount} kali.</small><button className="button primary full" onClick={() => { setFocusWarningOpen(false); requestExamFullscreen(); }}>Lanjutkan ujian</button></div></Modal>;
 
   if (phase === 'loading') return <AuthGuard role="student"><div className="center-screen"><LoaderCircle className="spin"/><span>Memeriksa ujian...</span></div></AuthGuard>;
@@ -337,7 +402,7 @@ export default function ExamPage() {
         {summary.tokenRequired && <label className="token-field">Token ujian<input value={examToken} onChange={(e) => setExamToken(e.target.value.toUpperCase())} placeholder="Masukkan token" autoCapitalize="characters"/></label>}
         {storageWarning && <div className="notice warning"><AlertTriangle size={18}/>{storageWarning}</div>}
         {error && <div className="notice danger">{error}</div>}
-        <button className="button primary full" disabled={!online || phase === 'starting' || (summary.tokenRequired && !examToken)} onClick={begin}>{phase === 'starting' ? <><LoaderCircle className="spin" size={19}/>Menyiapkan soal...</> : summary.attemptStatus === 'IN_PROGRESS' ? <><RefreshCw size={19}/>Lanjutkan ujian</> : <><ShieldCheck size={19}/>Mulai ujian</>}</button>
+        <button className="button primary full" disabled={!online || phase === 'starting' || (summary.tokenRequired && !examToken)} onClick={begin}>{phase === 'starting' ? <><LoaderCircle className="spin" size={19}/>Menyiapkan soal...</> : ['IN_PROGRESS', 'PAUSED'].includes(String(summary.attemptStatus || '')) ? <><RefreshCw size={19}/>Lanjutkan ujian</> : <><ShieldCheck size={19}/>Mulai ujian</>}</button>
         <p className="small-note">Timer baru berjalan setelah attempt dan batch soal awal berhasil disiapkan.</p>
       </section>
     </div>
@@ -345,10 +410,11 @@ export default function ExamPage() {
 
   if (phase === 'submitted') return <AuthGuard role="student"><StudentShell hideNav><div className="submitted-page"><div className="success-ring"><CheckCircle2 size={46}/></div><span className="eyebrow">BERHASIL DIKUMPULKAN</span><h1>Jawaban Anda sudah diterima.</h1><p>Attempt <code>{attempt?.attemptId}</code> telah ditutup dan backup lokal dihapus setelah server memberikan acknowledgement.</p>{result?.visible ? <div className="final-score"><strong>{result.score}</strong><span>Nilai</span><div><span>{result.correctCount} benar</span><span>{result.wrongCount} salah</span><span>{result.blankCount} kosong</span></div></div> : <div className="notice neutral">Nilai belum ditampilkan sesuai pengaturan ujian.</div>}<button className="button primary" onClick={() => router.replace('/student')}>Kembali ke beranda</button></div></StudentShell></AuthGuard>;
 
-  if (phase === 'review' || phase === 'submitting') return <AuthGuard role="student"><StudentShell hideNav><div className="review-page exam-protected"><button className="text-button" disabled={phase === 'submitting'} onClick={() => setPhase('exam')}><ArrowLeft size={18}/>Kembali ke soal</button><span className="eyebrow">REVIEW</span><h1>Periksa sebelum mengirim</h1><p>Setelah berhasil dikumpulkan, jawaban tidak dapat diubah kembali.</p><div className="review-stats"><div><strong>{answeredCount}</strong><span>Terjawab</span></div><div><strong>{Math.max(0, totalQuestions - answeredCount)}</strong><span>Belum dijawab</span></div><div><strong>{flagged.length}</strong><span>Ragu-ragu</span></div></div>{error && <div className="notice danger">{error}</div>}<div className="number-grid review-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''}`} onClick={() => { moveTo(idx); setPhase('exam'); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button primary full" disabled={phase === 'submitting' || !online} onClick={() => finalize(false)}>{phase === 'submitting' ? <><LoaderCircle className="spin" size={19}/>Mengirim jawaban...</> : <><Send size={19}/>Kirim jawaban</>}</button>{!online && <div className="notice warning"><CloudOff size={18}/>Sambungkan internet untuk final submit. Jawaban tetap tersimpan sementara.</div>}</div>{focusGuardModal}</StudentShell></AuthGuard>;
+  if (phase === 'review' || phase === 'submitting') return <AuthGuard role="student"><StudentShell hideNav><div className="review-page exam-protected"><button className="text-button" disabled={phase === 'submitting'} onClick={() => setPhase('exam')}><ArrowLeft size={18}/>Kembali ke soal</button><span className="eyebrow">REVIEW</span><h1>Periksa sebelum mengirim</h1><p>Setelah berhasil dikumpulkan, jawaban tidak dapat diubah kembali.</p><div className="review-stats"><div><strong>{answeredCount}</strong><span>Terjawab</span></div><div><strong>{Math.max(0, totalQuestions - answeredCount)}</strong><span>Belum dijawab</span></div><div><strong>{flagged.length}</strong><span>Ragu-ragu</span></div></div>{error && <div className="notice danger">{error}</div>}<div className="number-grid review-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''}`} onClick={() => { moveTo(idx); setPhase('exam'); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button primary full" disabled={phase === 'submitting' || !online} onClick={() => finalize(false)}>{phase === 'submitting' ? <><LoaderCircle className="spin" size={19}/>Mengirim jawaban...</> : <><Send size={19}/>Kirim jawaban</>}</button>{!online && <div className="notice warning"><CloudOff size={18}/>Sambungkan internet untuk final submit. Jawaban tetap tersimpan sementara.</div>}</div>{pauseOverlay}{teacherWarningModal}{focusGuardModal}</StudentShell></AuthGuard>;
 
   return <AuthGuard role="student"><StudentShell hideNav>
     <div className={`exam-screen exam-protected font-${fontSize}`}>
+      <div className="exam-watermark" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <span key={index}>{session?.user.name} • {session?.user.username}</span>)}</div>
       <header className="exam-topbar"><div><button className="icon-button" onClick={() => setPhase('review')} aria-label="Review ujian"><Grid3X3 size={20}/></button><div><strong>{summary.title}</strong><span>Soal {currentIndex + 1} dari {totalQuestions}</span></div></div><div className={remainingMs !== null && remainingMs < 5 * 60_000 ? 'timer danger' : 'timer'}><Clock3 size={18}/><strong>{remainingMs === null ? '--:--' : formatCountdown(Math.max(0, remainingMs))}</strong></div></header>
       <div className={`sync-strip ${saveStatus}`} >{saveStatus === 'syncing' ? <CloudUpload className="spin-soft" size={15}/> : saveStatus === 'offline' ? <CloudOff size={15}/> : <Check size={15}/>}<span>{saveLabel}{lastSyncAt && saveStatus === 'synced' ? ` • ${new Date(lastSyncAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}</span></div>
       {storageWarning && <div className="exam-storage-warning"><AlertTriangle size={15}/>{storageWarning}</div>}
@@ -370,6 +436,6 @@ export default function ExamPage() {
     </div>
     <Modal open={navigatorOpen} onClose={() => setNavigatorOpen(false)} title="Daftar nomor soal" size="small"><div className="navigator-legend"><span><i className="answered"/>Terjawab</span><span><i/>Belum</span><span><i className="flagged"/>Ragu</span></div><div className="number-grid">{Array.from({ length: totalQuestions }, (_, idx) => { const q = questions[idx + 1]; const answered = q && answers[q.questionId]; const isFlagged = q && flagged.includes(q.questionId); return <button key={idx} className={`number-chip ${answered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''} ${idx === currentIndex ? 'current' : ''}`} onClick={() => { moveTo(idx); setNavigatorOpen(false); }}>{idx + 1}{isFlagged && <Flag size={10}/>}</button>; })}</div><button className="button secondary full modal-review-button" onClick={() => { setNavigatorOpen(false); setPhase('review'); }}>Review & kumpulkan</button></Modal>
     <button className="floating-navigator" onClick={() => setNavigatorOpen(true)}><Grid3X3 size={20}/><span>{answeredCount}/{totalQuestions}</span></button>
-    {focusGuardModal}
+    {pauseOverlay}{teacherWarningModal}{focusGuardModal}
   </StudentShell></AuthGuard>;
 }

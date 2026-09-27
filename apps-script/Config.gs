@@ -5,7 +5,7 @@ const SM = Object.freeze({
     QUESTIONS: ['questionId','examId','authorId','topicCode','blueprintCode','code','stimulusOrder','questionText','questionHtml','explanation','optionA','optionB','optionC','optionD','optionE','interactionDataJson','imageFileId','questionType','scoringMode','maxScore','difficulty','tag','category','packageName','status','createdAt','updatedAt'],
     EXAM_QUESTIONS: ['examId','questionId','orderNo'],
     ANSWER_KEYS: ['questionId','correctAnswer','correctAnswers','score','maxScore'],
-    ATTEMPTS: ['attemptId','examId','studentId','startedAt','expiresAt','lastSyncAt','revision','status','submittedAt','questionOrderJson','optionOrderJson','answersJson'],
+    ATTEMPTS: ['attemptId','examId','studentId','startedAt','expiresAt','lastSyncAt','revision','status','submittedAt','questionOrderJson','optionOrderJson','answersJson','focusViolationCount','pauseStartedAt','lastWarning','lastWarningAt'],
     SUBMISSIONS: ['submissionId','attemptId','studentId','examId','answersJson','score','correctCount','wrongCount','blankCount','submittedAt','status'],
     SESSIONS: ['token','userId','role','expiresAt','createdAt'],
     AUDIT_LOG: ['logId','timestamp','userId','action','targetId','detailJson']

@@ -1,6 +1,7 @@
 export type Role = 'super_admin' | 'teacher' | 'student';
 export type ExamStatus = 'DRAFT' | 'SCHEDULED' | 'OPEN' | 'PAUSED' | 'ENDED' | 'ARCHIVED' | 'PUBLISHED' | 'ACTIVE' | 'CLOSED';
-export type AttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'EXPIRED';
+export type AttemptStatus = 'IN_PROGRESS' | 'PAUSED' | 'SUBMITTED' | 'EXPIRED';
+export type MonitoringStatus = 'NOT_STARTED' | AttemptStatus;
 export type ResultVisibility = 'immediate' | 'after_exam_closed' | 'manual_publish' | 'hidden';
 export type SaveStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'local-only';
 export type QuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MATCHING';
@@ -132,7 +133,8 @@ export interface TeacherRecord extends User { subject: string; }
 export interface TeacherInput { userId?: string; name: string; username: string; email?: string; phone?: string; subject: string; password?: string; status: 'ACTIVE' | 'INACTIVE'; }
 export interface AdminUserInput { userId?: string; name: string; username: string; email?: string; phone?: string; role: Role; className?: string; subject?: string; password?: string; status: 'ACTIVE' | 'INACTIVE'; }
 
-export interface MonitoringRow { attemptId: string; studentId: string; studentName: string; className: string; examId: string; examTitle: string; status: AttemptStatus; startedAt: string; lastSyncAt: string; revision: number; submittedAt?: string; }
+export interface MonitoringRow { attemptId?: string; studentId: string; studentName: string; className: string; examId: string; examTitle: string; status: MonitoringStatus; startedAt?: string; lastSyncAt?: string; revision: number; submittedAt?: string; focusViolationCount: number; warningMessage?: string; warningAt?: string; expiresAt?: string; }
+export interface AttemptControl { attemptId: string; status: AttemptStatus; expiresAt: string; serverTime: string; focusViolationCount: number; warningMessage?: string; warningAt?: string; }
 export interface AdminResultRow { submissionId: string; attemptId: string; studentId: string; studentName: string; className: string; examId: string; examTitle: string; score: number; correctCount: number; wrongCount: number; blankCount: number; submittedAt: string; }
 
 export interface AdminExamInput {

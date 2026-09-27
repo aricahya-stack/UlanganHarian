@@ -1,6 +1,7 @@
 import type { ExamApi } from './exam-api';
 import type {
   AdminExamInput,
+  AttemptControl,
   AdminQuestionInput,
   AdminResultRow,
   AdminStudentInput,
@@ -97,6 +98,10 @@ export class GoogleAppsScriptExamApi implements ExamApi {
   saveTeacher(token: string, input: TeacherInput) { return this.request<TeacherRecord>('saveTeacher', { token, input }); }
   deleteTeacher(token: string, userId: string) { return this.request<void>('deleteTeacher', { token, userId }); }
   getMonitoring(token: string, examId?: string) { return this.request<MonitoringRow[]>('getMonitoring', { token, examId }); }
+  setAttemptPaused(token: string, attemptId: string, paused: boolean) { return this.request<AttemptControl>('setAttemptPaused', { token, attemptId, paused }); }
+  warnAttempt(token: string, attemptId: string, message: string) { return this.request<{ attemptId: string; warningMessage: string; warningAt: string }>('warnAttempt', { token, attemptId, message }); }
+  getAttemptControl(token: string, attemptId: string) { return this.request<AttemptControl>('getAttemptControl', { token, attemptId }); }
+  reportFocusViolation(token: string, attemptId: string, count = 1) { return this.request<{ attemptId: string; focusViolationCount: number }>('reportFocusViolation', { token, attemptId, count }); }
   resetAttempt(token: string, attemptId: string) { return this.request<{ attemptId: string; reset: boolean }>('resetAttempt', { token, attemptId }); }
   getAdminResults(token: string, examId?: string) { return this.request<AdminResultRow[]>('getAdminResults', { token, examId }); }
 }

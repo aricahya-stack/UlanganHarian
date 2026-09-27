@@ -11,6 +11,7 @@ import type {
   ExamResult,
   ExamSummary,
   MonitoringRow,
+  AttemptControl,
   Question,
   QuestionRecord,
   QuestionPackageSummary,
@@ -65,6 +66,10 @@ export interface ExamApi {
   saveTeacher(token: string, input: TeacherInput): Promise<TeacherRecord>;
   deleteTeacher(token: string, userId: string): Promise<void>;
   getMonitoring(token: string, examId?: string): Promise<MonitoringRow[]>;
+  setAttemptPaused(token: string, attemptId: string, paused: boolean): Promise<AttemptControl>;
+  warnAttempt(token: string, attemptId: string, message: string): Promise<{ attemptId: string; warningMessage: string; warningAt: string }>;
   resetAttempt(token: string, attemptId: string): Promise<{ attemptId: string; reset: boolean }>;
+  getAttemptControl(token: string, attemptId: string): Promise<AttemptControl>;
+  reportFocusViolation(token: string, attemptId: string, count?: number): Promise<{ attemptId: string; focusViolationCount: number }>; 
   getAdminResults(token: string, examId?: string): Promise<AdminResultRow[]>;
 }

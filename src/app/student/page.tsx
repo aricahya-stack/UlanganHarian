@@ -14,6 +14,7 @@ import { formatDateTime, formatDuration } from '@/lib/format';
 function statusFor(exam: ExamSummary) {
   if (exam.attemptStatus === 'SUBMITTED') return { label: 'Selesai', tone: 'success' as const };
   if (exam.attemptStatus === 'IN_PROGRESS') return { label: 'Sedang dikerjakan', tone: 'warning' as const };
+  if (exam.attemptStatus === 'PAUSED') return { label: 'Dijeda guru', tone: 'warning' as const };
   const now = Date.now();
   if (new Date(exam.startTime).getTime() > now) return { label: 'Akan datang', tone: 'neutral' as const };
   if (new Date(exam.endTime).getTime() < now) return { label: 'Ditutup', tone: 'danger' as const };
@@ -31,7 +32,7 @@ export default function StudentHome() {
     getExamApi().getAvailableExams(session.token).then(setExams).catch((e) => setError(e instanceof Error ? e.message : 'Gagal memuat ujian.')).finally(() => setLoading(false));
   }, [session]);
 
-  const active = useMemo(() => exams.filter((exam) => exam.attemptStatus === 'IN_PROGRESS' || (Date.now() >= new Date(exam.startTime).getTime() && Date.now() <= new Date(exam.endTime).getTime() && exam.attemptStatus !== 'SUBMITTED')), [exams]);
+  const active = useMemo(() => exams.filter((exam) => ['IN_PROGRESS', 'PAUSED'].includes(String(exam.attemptStatus || '')) || (exam.availableNow && exam.attemptStatus !== 'SUBMITTED')), [exams]);
   const upcoming = useMemo(() => exams.filter((exam) => new Date(exam.startTime).getTime() > Date.now()), [exams]);
   const completed = exams.filter((exam) => exam.attemptStatus === 'SUBMITTED').length;
 
@@ -58,7 +59,7 @@ export default function StudentHome() {
               <div className="exam-card-top"><span className="subject-icon"><FileText size={22}/></span><Badge tone={status.tone}>{status.label}</Badge></div>
               <div><p className="exam-subject">{exam.subject} • {exam.className}</p><h3>{exam.title}</h3></div>
               <div className="exam-meta"><span><FileText size={16}/>{exam.questionCount} soal</span><span><Clock3 size={16}/>{formatDuration(exam.durationMinutes)}</span><span><CalendarDays size={16}/>{formatDateTime(exam.endTime)}</span></div>
-              <Link className="button primary full" href={`/student/exam/${exam.examId}`}>{exam.attemptStatus === 'IN_PROGRESS' ? 'Lanjutkan ujian' : 'Persiapkan ujian'}<ArrowRight size={18}/></Link>
+              <Link className="button primary full" href={`/student/exam/${exam.examId}`}>{['IN_PROGRESS', 'PAUSED'].includes(String(exam.attemptStatus || '')) ? 'Lanjutkan ujian' : 'Persiapkan ujian'}<ArrowRight size={18}/></Link>
             </article>;
           })}</div>
         )}
